@@ -18,7 +18,7 @@ if "other_work_total_min" not in st.session_state:
     st.session_state.other_work_total_min = 0
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "YOUR_GAS_URL_HERE"
+GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -788,3 +788,4 @@ elif current_tab == "⚙️ 管理者":
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
