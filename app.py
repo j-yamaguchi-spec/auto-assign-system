@@ -87,10 +87,10 @@ def fetch_data():
                     # UTCの日時文字列をJST（日本時間）に変換してフォーマット
                     df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
                 
-                # ▼ 追加: GASから送られてきたメンバー一覧を取得
+                # GASから送られてきたメンバー一覧を取得
                 members = data.get("members", [])
                 
-                # ▼ 追加: 設定値とメンバー詳細データを取得
+                # 設定値とメンバー詳細データを取得
                 api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
                 members_data = data.get("membersData", [])
                 
@@ -207,21 +207,36 @@ with header_container:
                 fetch_data.clear()
                 st.rerun()
         with ctrl_col1:
+            # ▼ 修正: カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
-            if not df.empty:
-                existing_users = df['assigned'].dropna().unique().tolist()
-                users = list(dict.fromkeys(existing_users + users)) # 重複削除
             
-            # URLパラメータからデフォルトユーザーを取得し固定化するロジック
+            # ▼▼▼ 修正: URLパラメータによる固定化と自動更新ロジックの強化 ▼▼▼
             url_user = st.query_params.get("user")
             
-            default_index = 0
-            if url_user and url_user in users:
-                default_index = users.index(url_user) # URLの指定を最優先
-            elif "selected_user" in st.session_state and st.session_state.selected_user in users:
-                default_index = users.index(st.session_state.selected_user) # セッションの記憶を次に優先
+            # 初回アクセス時などにURLにuserパラメータがあれば、強制的にセッションへ反映する
+            if url_user and url_user in users and st.session_state.selected_user != url_user:
+                st.session_state.selected_user = url_user
                 
-            st.selectbox("担当者", users, index=default_index, key="selected_user", label_visibility="collapsed")
+            # 現在のセッションのユーザーのインデックスを取得
+            default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
+            
+            # ドロップダウンでユーザーが変更されたら、URLパラメータも自動で書き換える関数
+            def on_user_change():
+                st.query_params["user"] = st.session_state.selected_user
+                
+            # アプリ起動時にURLパラメータが空であれば、現在のユーザー名を入れておく
+            if not url_user:
+                 st.query_params["user"] = st.session_state.selected_user
+
+            st.selectbox(
+                "担当者", 
+                users, 
+                index=default_index, 
+                key="selected_user", 
+                on_change=on_user_change, # 変更時にURLを同期
+                label_visibility="collapsed"
+            )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         with ctrl_col2:
             current_tab = st.radio("画面", ["👤 ユーザー", "⚙️ 管理者"], horizontal=True, label_visibility="collapsed", key="current_tab")
@@ -234,6 +249,9 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 today_str = datetime.now().strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
+    
+    # ▼ 新規追加: メンバーへのブックマーク推奨アナウンス ▼
+    st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
     # 自分のタスクだけをフィルタリング
     my_tasks = pd.DataFrame()
