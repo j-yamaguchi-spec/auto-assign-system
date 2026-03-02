@@ -79,8 +79,8 @@ st.markdown("""
 def fetch_data():
     try:
         response = requests.get(GAS_URL)
-        # ▼▼▼ 追加: データ取得時のタイムスタンプを記録 ▼▼▼
-        fetch_time = datetime.now().strftime("%H:%M:%S")
+        # ▼▼▼ 修正: データ取得時のタイムスタンプを日本時間(JST)で記録 ▼▼▼
+        fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
         if response.status_code == 200:
             data = response.json()
             if data.get("status") == "success":
@@ -100,7 +100,7 @@ def fetch_data():
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], fetch_time
     except Exception as e:
         st.error(f"通信エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], datetime.now().strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
     with st.spinner('ステータスを更新中...'):
