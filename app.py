@@ -319,8 +319,9 @@ if current_tab == "👤 ユーザー":
         """, unsafe_allow_html=True)
 
     with col_right:
+        # ▼ 修正: 高さ固定(height: 93%)を外し、下に余白(margin-bottom)を追加
         st.markdown(f"""
-        <div class="custom-card" style="border-left-color: #38b2ac; height: 93%;">
+        <div class="custom-card" style="border-left-color: #38b2ac; margin-bottom: 8px;">
             <div style="display: flex; justify-content: space-between; padding-top: 5px;">
                 <div style="width: 48%;">
                     <div style="color:#2c5282; font-weight: bold; margin-bottom: 5px;">📈 今日の実績 (代筆完了)</div>
@@ -341,6 +342,40 @@ if current_tab == "👤 ユーザー":
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # ▼▼▼ 新規追加: 翌日の他メンバー/未割当タスク表示ロジック ▼▼▼
+        now = pd.Timestamp.now(tz='Asia/Tokyo')
+        today_date = now.date()
+        tomorrow_date = today_date + pd.Timedelta(days=1)
+        
+        # 自分の「未完了」のタスクを抽出
+        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
+        # その中で「今日・明日」のものを抽出
+        my_active_today_tomorrow = my_active_tasks[my_active_tasks['datetime'].dt.date.isin([today_date, tomorrow_date])]
+        
+        # もし自分の今日・明日のタスクが0件（明後日以降しかない、または完全に空）なら表示する
+        if my_active_today_tomorrow.empty:
+            other_tomorrow_tasks = pd.DataFrame()
+            if not df.empty:
+                # 翌日のタスク ＆ 完了・取消以外 ＆ 自分以外の担当（未割当含む）
+                other_tomorrow_tasks = df[
+                    (df['datetime'].dt.date == tomorrow_date) & 
+                    (~df['status'].isin(['完了', '取り消し'])) &
+                    (df['assigned'].fillna('未割当') != st.session_state.selected_user)
+                ].sort_values('datetime')
+                
+            if not other_tomorrow_tasks.empty:
+                st.markdown("<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>📅 翌日の待機タスク (他メンバー/未割当)</div>", unsafe_allow_html=True)
+                # スクロール可能な小窓デザイン
+                task_list_html = "<div class='custom-card' style='padding: 6px 12px; border-left-color: #ecc94b; max-height: 90px; overflow-y: auto; font-size: 0.85em; margin-bottom: 0;'>"
+                for _, t in other_tomorrow_tasks.iterrows():
+                    t_time = t['datetime'].strftime('%H:%M')
+                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 翌 {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {t['anken_id']}</div>"
+                task_list_html += "</div>"
+                st.markdown(task_list_html, unsafe_allow_html=True)
+            else:
+                st.markdown("<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 翌日の待機タスクはありません</div>", unsafe_allow_html=True)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 中段: 現在着手中の案件 ---
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
