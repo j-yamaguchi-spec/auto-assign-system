@@ -788,4 +788,3 @@ elif current_tab == "⚙️ 管理者":
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
