@@ -79,6 +79,8 @@ st.markdown("""
 def fetch_data():
     try:
         response = requests.get(GAS_URL)
+        # ▼▼▼ 追加: データ取得時のタイムスタンプを記録 ▼▼▼
+        fetch_time = datetime.now().strftime("%H:%M:%S")
         if response.status_code == 200:
             data = response.json()
             if data.get("status") == "success":
@@ -94,11 +96,11 @@ def fetch_data():
                 api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
                 members_data = data.get("membersData", [])
                 
-                return df, members, api_settings, members_data
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, []
+                return df, members, api_settings, members_data, fetch_time
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], fetch_time
     except Exception as e:
         st.error(f"通信エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, []
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], datetime.now().strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
     with st.spinner('ステータスを更新中...'):
@@ -189,9 +191,9 @@ def reset_system():
 header_container = st.container()
 
 # データとメンバー一覧を取得
-df, api_members, api_settings, api_members_data = fetch_data()
+df, api_members, api_settings, api_members_data, fetch_time = fetch_data()
 
-# ▼▼▼ 追加: 復活音源の判定補正ロジック ▼▼▼
+# 復活音源の判定補正ロジック
 # カレンダー上でタイトルから「🔊」が外れても、完了時に確認分数が記録されていれば「復活音源」として強制的に扱う
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
@@ -200,7 +202,6 @@ if not df.empty:
         df.loc[f_min_num > 0, 'fukkatsu'] = True
     elif 'fukkatsu' not in df.columns:
         df['fukkatsu'] = False
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 with header_container:
     # CSSにこのコンテナを「固定する場所」と教えるための目印（アンカー）
@@ -209,7 +210,14 @@ with header_container:
     col_title, col_controls = st.columns([1.5, 1])
 
     with col_title:
-        st.markdown("<h3 style='margin: 0; color: #2c5282; font-weight: bold;'>⚡ 自動振り分けシステム</h3>", unsafe_allow_html=True)
+        # ▼▼▼ 修正: タイトルの横に最終更新時間を追加 ▼▼▼
+        st.markdown(f"""
+            <div style='display: flex; align-items: baseline; gap: 12px;'>
+                <h3 style='margin: 0; color: #2c5282; font-weight: bold;'>⚡ 自動振り分けシステム</h3>
+                <span style='color: #718096; font-size: 0.85rem; font-weight: normal;'>最終更新: {fetch_time}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     with col_controls:
         ctrl_col0, ctrl_col1, ctrl_col2 = st.columns([0.5, 1.2, 1.2])
@@ -572,7 +580,7 @@ elif current_tab == "⚙️ 管理者":
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 update_settings(past_days, future_days)
 
-            # ▼▼▼ 追加: 直近1週間の残りタスク数集計（AM/PM・自営分割対応） ▼▼▼
+            # 直近1週間の残りタスク数集計（AM/PM・自営分割対応）
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
             # タイトルとAM/PM境界時間入力を横並びに配置
@@ -660,7 +668,6 @@ elif current_tab == "⚙️ 管理者":
                     "合計": st.column_config.NumberColumn("合計", format="%d 件", width="small")
                 }
             )
-            # ▲▲▲ 追加ここまで ▲▲▲
 
         with col_admin_r:
             # --- セクション2 (右): メンバー稼働ステータス ---
