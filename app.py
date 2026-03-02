@@ -562,6 +562,51 @@ elif current_tab == "⚙️ 管理者":
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 update_settings(past_days, future_days)
 
+            # ▼▼▼ 追加: 直近1週間の残りタスク数集計 ▼▼▼
+            st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #4a5568;'>📅 直近1週間の残りタスク数</h5>", unsafe_allow_html=True)
+            
+            if not df.empty:
+                # 完了以外（着手、中断、未対応）かつ JOBYmini 以外のタスクを抽出
+                target_tasks = df[
+                    (df['status'].isin(['着手', '中断', '未対応'])) & 
+                    (df['product'] != 'JOBYmini')
+                ].copy()
+                
+                # 日付部分のみを取り出してグループ化・件数カウント
+                target_tasks['date'] = target_tasks['datetime'].dt.date
+                task_counts = target_tasks.groupby('date').size().to_dict()
+            else:
+                task_counts = {}
+
+            now = pd.Timestamp.now(tz='Asia/Tokyo')
+            today_date = now.date()
+            youbi_list = ['月', '火', '水', '木', '金', '土', '日']
+            
+            upcoming_data = []
+            for i in range(7):
+                target_d = today_date + pd.Timedelta(days=i)
+                count = task_counts.get(target_d, 0)
+                date_str = f"{target_d.month}/{target_d.day}（{youbi_list[target_d.weekday()]}）"
+                
+                upcoming_data.append({
+                    "日付（曜日）": date_str,
+                    "件数": count
+                })
+                
+            upcoming_df = pd.DataFrame(upcoming_data)
+            
+            st.dataframe(
+                upcoming_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "日付（曜日）": st.column_config.Column("日付（曜日）", width="medium"),
+                    "件数": st.column_config.NumberColumn("件数", format="%d 件", width="small")
+                }
+            )
+            # ▲▲▲ 追加ここまで ▲▲▲
+
         with col_admin_r:
             # --- セクション2 (右): メンバー稼働ステータス ---
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
