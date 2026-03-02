@@ -18,7 +18,7 @@ if "other_work_total_min" not in st.session_state:
     st.session_state.other_work_total_min = 0
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
+GAS_URL = "YOUR_GAS_URL_HERE"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -101,7 +101,7 @@ def fetch_data():
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, []
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
-    with st.spinner('GASへ送信中...'):
+    with st.spinner('ステータスを更新中...'):
         payload = {
             "action": "update_status",
             "anken_id": anken_id,
@@ -110,18 +110,47 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
         }
         try:
             requests.post(GAS_URL, json=payload)
-            fetch_data.clear() # キャッシュを破棄して最新データを再取得させる
-            st.rerun()         # 画面を即座にリロード
+            fetch_data.clear()
+            st.rerun()
         except Exception as e:
             st.error(f"更新エラー: {e}")
 
-# ▼▼▼ 修正: ステータスも同時に保存できるように引数を追加 ▼▼▼
+# ▼▼▼ おそらくここが丸ごと抜けてしまっています。追加してください ▼▼▼
+def update_assign(anken_id, assigned):
+    with st.spinner('担当者を更新中...'):
+        payload = {
+            "action": "update_assign",
+            "anken_id": anken_id,
+            "assigned": assigned
+        }
+        try:
+            requests.post(GAS_URL, json=payload)
+            fetch_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"更新エラー: {e}")
+
+# ▼▼▼ 途切れて消えてしまっていた関数を復元 ▼▼▼
+def update_settings(past_days, future_days):
+    with st.spinner('設定を保存中...'):
+        payload = {
+            "action": "update_settings",
+            "past_days": past_days,
+            "future_days": future_days
+        }
+        try:
+            requests.post(GAS_URL, json=payload)
+            fetch_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"更新エラー: {e}")
+
 def update_skills(name, status, itsuzai, agent, shukyaku, jiei):
     with st.spinner(f'{name}さんの設定を保存中...'):
         payload = {
             "action": "update_skills",
             "name": name,
-            "status": status,  # 追加
+            "status": status,
             "itsuzai": itsuzai,
             "agent": agent,
             "shukyaku": shukyaku,
@@ -133,7 +162,7 @@ def update_skills(name, status, itsuzai, agent, shukyaku, jiei):
             st.rerun()
         except Exception as e:
             st.error(f"更新エラー: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ▼▼▼ 修正: システム全リセット用関数 ▼▼▼
 def reset_system():
