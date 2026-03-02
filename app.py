@@ -191,6 +191,17 @@ header_container = st.container()
 # データとメンバー一覧を取得
 df, api_members, api_settings, api_members_data = fetch_data()
 
+# ▼▼▼ 追加: 復活音源の判定補正ロジック ▼▼▼
+# カレンダー上でタイトルから「🔊」が外れても、完了時に確認分数が記録されていれば「復活音源」として強制的に扱う
+if not df.empty:
+    if 'fukkatsu_min' in df.columns:
+        # fukkatsu_min が 1 以上の数値であれば fukkatsu フラグを True に上書き
+        f_min_num = pd.to_numeric(df['fukkatsu_min'], errors='coerce').fillna(0)
+        df.loc[f_min_num > 0, 'fukkatsu'] = True
+    elif 'fukkatsu' not in df.columns:
+        df['fukkatsu'] = False
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 with header_container:
     # CSSにこのコンテナを「固定する場所」と教えるための目印（アンカー）
     st.markdown('<div id="sticky-header-anchor"></div>', unsafe_allow_html=True)
@@ -659,7 +670,7 @@ elif current_tab == "⚙️ 管理者":
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
-                active_dict[row['assigned']] = f"{row['method']} ({row['product']})"
+                active_dict[row['assigned']] = str(row['anken_id'])
                 
             # 担当者ごとの状態を集計
             summary_data = []
@@ -782,7 +793,7 @@ elif current_tab == "⚙️ 管理者":
                                 ),
                                 "シフト": st.column_config.SelectboxColumn(
                                     "シフト ✏️",
-                                    options=["早番", "中番"],
+                                    options=["早番", "遅番"],
                                     width="small",
                                     help="クリックしてシフトを変更できます"
                                 ),
@@ -841,27 +852,29 @@ elif current_tab == "⚙️ 管理者":
         completed_cases_df = filtered_all_df[filtered_all_df['ステータス'] == '完了'].copy()
         completed_cases_df = completed_cases_df.sort_values('日時', ascending=False).reset_index(drop=True)
         
-        # 2. 未完了の案件（着手・中断・未対応・取り消し）
-        active_cases_df = filtered_all_df[filtered_all_df['ステータス'] != '完了'].copy()
+        # 2. 着手中・中断中の案件
+        in_progress_cases_df = filtered_all_df[filtered_all_df['ステータス'].isin(['着手', '中断'])].copy()
+        status_priority_prog = {'着手': 1, '中断': 2}
+        in_progress_cases_df['優先度'] = in_progress_cases_df['ステータス'].map(status_priority_prog).fillna(3)
+        in_progress_cases_df = in_progress_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
-        # ソート優先度の設定（着手=1, 中断=2, 未対応=3, 取り消し=4）
-        status_priority = {'着手': 1, '中断': 2, '未対応': 3, '取り消し': 4}
-        active_cases_df['優先度'] = active_cases_df['ステータス'].map(status_priority).fillna(5)
-        
-        # 優先度順、その中で古い日時順にソート
-        active_cases_df = active_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
+        # 3. 未対応・取り消しなどの案件（待機中）
+        waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
+        status_priority_wait = {'未対応': 1, '取り消し': 2}
+        waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
+        waiting_cases_df = waiting_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
         # 担当者のプルダウン用選択肢
         assign_options = [""] + users
         
-        # --- 3-1: 未完了案件リスト (編集可) ---
-        st.markdown("<h4 style='color: #4a5568; margin-top: 15px;'>📋 現在の案件リスト (未完了 / 担当者変更可)</h4>", unsafe_allow_html=True)
+        # --- 3-1: 待機中案件リスト (編集可) ---
+        st.markdown("<h4 style='color: #4a5568; margin-top: 15px;'>📋 現在の案件リスト (未対応 / 担当者変更可)</h4>", unsafe_allow_html=True)
         
-        if active_cases_df.empty:
-            st.success("現在対応が必要な案件はありません。")
+        if waiting_cases_df.empty:
+            st.success("現在待機中の案件はありません。")
         else:
-            edited_df = st.data_editor(
-                active_cases_df,
+            edited_waiting_df = st.data_editor(
+                waiting_cases_df,
                 use_container_width=True,
                 hide_index=True,
                 disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'], # 担当者以外は編集ロック
@@ -875,20 +888,55 @@ elif current_tab == "⚙️ 管理者":
                     ),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                 },
-                key="admin_active_data_editor"
+                key="admin_waiting_data_editor"
             )
             
             # 変更検知ロジック
-            if not edited_df.equals(active_cases_df):
-                for idx in active_cases_df.index:
-                    old_val = active_cases_df.loc[idx, '担当者']
-                    new_val = edited_df.loc[idx, '担当者']
+            if not edited_waiting_df.equals(waiting_cases_df):
+                for idx in waiting_cases_df.index:
+                    old_val = waiting_cases_df.loc[idx, '担当者']
+                    new_val = edited_waiting_df.loc[idx, '担当者']
                     if old_val != new_val:
-                        target_id = edited_df.loc[idx, '案件ID']
+                        target_id = edited_waiting_df.loc[idx, '案件ID']
+                        update_assign(target_id, new_val)
+                        break
+                        
+        # --- 3-2: 着手中・中断中案件リスト (編集可) ---
+        st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #4a5568;'>🏃 着手中・中断中の案件リスト (担当者変更可)</h4>", unsafe_allow_html=True)
+        
+        if in_progress_cases_df.empty:
+            st.info("現在着手中・中断中の案件はありません。")
+        else:
+            edited_inprogress_df = st.data_editor(
+                in_progress_cases_df,
+                use_container_width=True,
+                hide_index=True,
+                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'], # 担当者以外は編集ロック
+                column_config={
+                    "タイトル": st.column_config.Column("タイトル", width="large"),
+                    "担当者": st.column_config.SelectboxColumn(
+                        "担当者 ✏️",
+                        help="クリックして担当者を変更できます",
+                        width="small",
+                        options=assign_options
+                    ),
+                    "ステータス": st.column_config.Column("ステータス", width="small"),
+                },
+                key="admin_inprogress_data_editor"
+            )
+            
+            # 変更検知ロジック
+            if not edited_inprogress_df.equals(in_progress_cases_df):
+                for idx in in_progress_cases_df.index:
+                    old_val = in_progress_cases_df.loc[idx, '担当者']
+                    new_val = edited_inprogress_df.loc[idx, '担当者']
+                    if old_val != new_val:
+                        target_id = edited_inprogress_df.loc[idx, '案件ID']
                         update_assign(target_id, new_val)
                         break
 
-        # --- 3-2: 完了済み案件リスト (表示のみ) ---
+        # --- 3-3: 完了済み案件リスト (表示のみ) ---
         st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>✅ 完了済みの案件リスト</h4>", unsafe_allow_html=True)
         
