@@ -79,7 +79,7 @@ st.markdown("""
 def fetch_data():
     try:
         response = requests.get(GAS_URL)
-        # ▼▼▼ 修正: データ取得時のタイムスタンプを日本時間(JST)で記録 ▼▼▼
+        # データ取得時のタイムスタンプを日本時間(JST)で記録
         fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
         if response.status_code == 200:
             data = response.json()
@@ -187,6 +187,12 @@ def reset_system():
 # ==========================================
 # 4. ヘッダー
 # ==========================================
+
+# ▼▼▼ 修正: データ更新用のコールバック関数 ▼▼▼
+def handle_refresh():
+    fetch_data.clear()
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 # ヘッダー全体を1つのコンテナにまとめて固定化
 header_container = st.container()
 
@@ -210,21 +216,20 @@ with header_container:
     col_title, col_controls = st.columns([1.5, 1])
 
     with col_title:
-        # ▼▼▼ 修正: タイトルの横に最終更新時間を追加 ▼▼▼
         st.markdown(f"""
             <div style='display: flex; align-items: baseline; gap: 12px;'>
                 <h3 style='margin: 0; color: #2c5282; font-weight: bold;'>⚡ 自動振り分けシステム</h3>
                 <span style='color: #718096; font-size: 0.85rem; font-weight: normal;'>最終更新: {fetch_time}</span>
             </div>
         """, unsafe_allow_html=True)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     with col_controls:
         ctrl_col0, ctrl_col1, ctrl_col2 = st.columns([0.5, 1.2, 1.2])
         with ctrl_col0:
-            if st.button("🔄", help="最新データを取得"):
-                fetch_data.clear()
-                st.rerun()
+            # ▼▼▼ 修正: st.rerun() ではなく、on_clickでキャッシュをクリアする方式に変更 ▼▼▼
+            st.button("🔄", help="最新データを取得", on_click=handle_refresh)
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
         with ctrl_col1:
             # カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
