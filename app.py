@@ -207,10 +207,10 @@ with header_container:
                 fetch_data.clear()
                 st.rerun()
         with ctrl_col1:
-            # ▼ 修正: カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
+            # カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
             
-            # ▼▼▼ 修正: URLパラメータによる固定化と自動更新ロジックの強化 ▼▼▼
+            # URLパラメータによる固定化と自動更新ロジックの強化
             url_user = st.query_params.get("user")
             
             # 初回アクセス時などにURLにuserパラメータがあれば、強制的にセッションへ反映する
@@ -236,7 +236,6 @@ with header_container:
                 on_change=on_user_change, # 変更時にURLを同期
                 label_visibility="collapsed"
             )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         with ctrl_col2:
             current_tab = st.radio("画面", ["👤 ユーザー", "⚙️ 管理者"], horizontal=True, label_visibility="collapsed", key="current_tab")
@@ -250,7 +249,7 @@ today_str = datetime.now().strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
     
-    # ▼ 新規追加: メンバーへのブックマーク推奨アナウンス ▼
+    # メンバーへのブックマーク推奨アナウンス
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
     # 自分のタスクだけをフィルタリング
@@ -562,9 +561,15 @@ elif current_tab == "⚙️ 管理者":
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 update_settings(past_days, future_days)
 
-            # ▼▼▼ 追加: 直近1週間の残りタスク数集計 ▼▼▼
+            # ▼▼▼ 追加: 直近1週間の残りタスク数集計（AM/PM・自営分割対応） ▼▼▼
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #4a5568;'>📅 直近1週間の残りタスク数</h5>", unsafe_allow_html=True)
+            
+            # タイトルとAM/PM境界時間入力を横並びに配置
+            header_col1, header_col2 = st.columns([1.5, 1])
+            with header_col1:
+                st.markdown("<h5 style='color: #4a5568; padding-top: 25px;'>📅 直近1週間の残りタスク数</h5>", unsafe_allow_html=True)
+            with header_col2:
+                boundary_time = st.time_input("AM/PM 分割時間 (指定時間までがAM)", datetime.strptime("13:00", "%H:%M").time())
             
             if not df.empty:
                 # 完了以外（着手、中断、未対応）かつ JOBYmini 以外のタスクを抽出
@@ -573,9 +578,35 @@ elif current_tab == "⚙️ 管理者":
                     (df['product'] != 'JOBYmini')
                 ].copy()
                 
-                # 日付部分のみを取り出してグループ化・件数カウント
-                target_tasks['date'] = target_tasks['datetime'].dt.date
-                task_counts = target_tasks.groupby('date').size().to_dict()
+                task_counts = {}
+                if not target_tasks.empty:
+                    # 必要な日時情報を抽出
+                    target_tasks['date'] = target_tasks['datetime'].dt.date
+                    target_tasks['time'] = target_tasks['datetime'].dt.time
+                    
+                    # 自営判定: methodカラムに「自営」が含まれているか
+                    target_tasks['is_jiei'] = target_tasks['method'].astype(str).str.contains('自営', na=False)
+                    # AM判定: 指定した時間（boundary_time）以下かどうか
+                    target_tasks['is_am'] = target_tasks['time'] <= boundary_time
+                    
+                    # カテゴリ分け関数
+                    def categorize(row):
+                        if row['is_jiei']:
+                            return '自営'
+                        elif row['is_am']:
+                            return '他営AM'
+                        else:
+                            return '他営PM'
+                            
+                    target_tasks['category'] = target_tasks.apply(categorize, axis=1)
+                    
+                    # 日付とカテゴリで集計
+                    for _, row in target_tasks.iterrows():
+                        d = row['date']
+                        cat = row['category']
+                        if d not in task_counts:
+                            task_counts[d] = {'他営AM': 0, '他営PM': 0, '自営': 0}
+                        task_counts[d][cat] += 1
             else:
                 task_counts = {}
 
@@ -586,23 +617,36 @@ elif current_tab == "⚙️ 管理者":
             upcoming_data = []
             for i in range(7):
                 target_d = today_date + pd.Timedelta(days=i)
-                count = task_counts.get(target_d, 0)
+                counts = task_counts.get(target_d, {'他営AM': 0, '他営PM': 0, '自営': 0})
+                
+                am_c = counts['他営AM']
+                pm_c = counts['他営PM']
+                jiei_c = counts['自営']
+                total_c = am_c + pm_c + jiei_c
+                
                 date_str = f"{target_d.month}/{target_d.day}（{youbi_list[target_d.weekday()]}）"
                 
                 upcoming_data.append({
                     "日付（曜日）": date_str,
-                    "件数": count
+                    "他営AM": am_c,
+                    "他営PM": pm_c,
+                    "自営": jiei_c,
+                    "合計": total_c
                 })
                 
             upcoming_df = pd.DataFrame(upcoming_data)
             
+            # データフレームの表示
             st.dataframe(
                 upcoming_df,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "日付（曜日）": st.column_config.Column("日付（曜日）", width="medium"),
-                    "件数": st.column_config.NumberColumn("件数", format="%d 件", width="small")
+                    "他営AM": st.column_config.NumberColumn("他営AM", format="%d 件", width="small"),
+                    "他営PM": st.column_config.NumberColumn("他営PM", format="%d 件", width="small"),
+                    "自営": st.column_config.NumberColumn("自営", format="%d 件", width="small"),
+                    "合計": st.column_config.NumberColumn("合計", format="%d 件", width="small")
                 }
             )
             # ▲▲▲ 追加ここまで ▲▲▲
@@ -738,7 +782,7 @@ elif current_tab == "⚙️ 管理者":
                                 ),
                                 "シフト": st.column_config.SelectboxColumn(
                                     "シフト ✏️",
-                                    options=["早番", "遅番"],
+                                    options=["早番", "中番"],
                                     width="small",
                                     help="クリックしてシフトを変更できます"
                                 ),
