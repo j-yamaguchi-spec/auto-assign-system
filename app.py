@@ -17,6 +17,8 @@ if "other_work_logs" not in st.session_state:
     st.session_state.other_work_logs = []
 if "other_work_total_min" not in st.session_state:
     st.session_state.other_work_total_min = 0
+if "other_work_start_time" not in st.session_state:
+    st.session_state.other_work_start_time = None
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
@@ -179,6 +181,8 @@ def reset_system():
                 st.session_state.other_work_logs = []
             if "other_work_total_min" in st.session_state:
                 st.session_state.other_work_total_min = 0
+            if "other_work_start_time" in st.session_state:
+                st.session_state.other_work_start_time = None
             
             fetch_data.clear()
             st.rerun()
@@ -350,13 +354,23 @@ if current_tab == "👤 ユーザー":
             if st.session_state.current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
                     st.session_state.current_status = "出社"
-                    st.session_state.other_work_logs.append(f"終了: {datetime.now().strftime('%H:%M')}")
-                    st.session_state.other_work_total_min += 30 # ダミー加算
+                    now = datetime.now()
+                    st.session_state.other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
+                    
+                    # 開始時間との差分を分単位で計算して加算
+                    if st.session_state.other_work_start_time:
+                        diff = now - st.session_state.other_work_start_time
+                        minutes = int(diff.total_seconds() / 60)
+                        st.session_state.other_work_total_min += minutes
+                        st.session_state.other_work_start_time = None
+                        
                     st.rerun()
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(st.session_state.current_status == "休憩中")):
                     st.session_state.current_status = "別業務中"
-                    st.session_state.other_work_logs.append(f"開始: {datetime.now().strftime('%H:%M')}")
+                    now = datetime.now()
+                    st.session_state.other_work_start_time = now # 開始時間を記録
+                    st.session_state.other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
                     st.rerun()
                     
         logs_html = "".join([f"<li>{log}</li>" for log in st.session_state.other_work_logs[-3:]])
@@ -370,7 +384,7 @@ if current_tab == "👤 ユーザー":
                 </div>
                 <div style="width: 35%; text-align: right; color: #4a5568;">
                     <strong>別業務合計:</strong><br>
-                    <span style="font-size: 1.4em; font-weight: bold; color: #2d3748;">{st.session_state.other_work_total_min}</span> mm
+                    <span style="font-size: 1.4em; font-weight: bold; color: #2d3748;">{st.session_state.other_work_total_min}</span> 分
                 </div>
             </div>
         </div>
