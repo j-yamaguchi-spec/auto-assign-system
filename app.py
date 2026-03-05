@@ -2,6 +2,9 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import time
+import json # 追加: ログ保存用
+import os   # 追加: ファイル操作用
 
 # ▼▼▼ 追加: 自動更新用のライブラリをインポート試行 ▼▼▼
 try:
@@ -18,14 +21,65 @@ st.set_page_config(page_title="自動振り分けシステム", layout="wide")
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" # テストデータに存在する名前に初期化
-if "current_status" not in st.session_state:
-    st.session_state.current_status = "出社"
-if "other_work_logs" not in st.session_state:
-    st.session_state.other_work_logs = []
-if "other_work_total_min" not in st.session_state:
-    st.session_state.other_work_total_min = 0
-if "other_work_start_time" not in st.session_state:
-    st.session_state.other_work_start_time = None
+
+# ▼▼▼ 追加: ログ永続化のためのJSONファイル操作関数 ▼▼▼
+WORK_LOG_FILE = "work_logs.json"
+
+def get_user_work_data(username):
+    if os.path.exists(WORK_LOG_FILE):
+        try:
+            with open(WORK_LOG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                user_data = data.get(username)
+                if user_data:
+                    st_time_str = user_data.get("other_work_start_time")
+                    start_time = pd.to_datetime(st_time_str) if st_time_str else None
+                    return {
+                        "current_status": user_data.get("current_status", "出社"),
+                        "other_work_logs": user_data.get("other_work_logs", []),
+                        "other_work_total_min": user_data.get("other_work_total_min", 0),
+                        "other_work_start_time": start_time
+                    }
+        except Exception:
+            pass
+    return {
+        "current_status": "出社",
+        "other_work_logs": [],
+        "other_work_total_min": 0,
+        "other_work_start_time": None
+    }
+
+def save_user_work_data(username, status, logs, total_min, start_time):
+    data = {}
+    if os.path.exists(WORK_LOG_FILE):
+        try:
+            with open(WORK_LOG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    
+    st_time_str = start_time.isoformat() if start_time else None
+    
+    data[username] = {
+        "current_status": status,
+        "other_work_logs": logs,
+        "other_work_total_min": total_min,
+        "other_work_start_time": st_time_str
+    }
+    
+    try:
+        with open(WORK_LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def clear_all_work_data():
+    if os.path.exists(WORK_LOG_FILE):
+        try:
+            os.remove(WORK_LOG_FILE)
+        except Exception:
+            pass
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
@@ -182,14 +236,8 @@ def reset_system():
         try:
             requests.post(GAS_URL, json=payload)
             
-            # 操作しているブラウザのローカルステータス（別業務など）も強制的に出社へリセット
-            st.session_state.current_status = "出社"
-            if "other_work_logs" in st.session_state:
-                st.session_state.other_work_logs = []
-            if "other_work_total_min" in st.session_state:
-                st.session_state.other_work_total_min = 0
-            if "other_work_start_time" in st.session_state:
-                st.session_state.other_work_start_time = None
+            # ▼▼▼ 修正: 全ユーザーの別業務ログファイルも削除して初期化 ▼▼▼
+            clear_all_work_data()
             
             fetch_data.clear()
             st.rerun()
@@ -292,7 +340,6 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 # ==========================================
 # 5. メイン画面（ユーザータブ）
 # ==========================================
-# ▼▼▼ 修正: 今日の日付も日本時間で取得するように変更 ▼▼▼
 today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
@@ -321,47 +368,54 @@ if current_tab == "👤 ユーザー":
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
+        # ▼▼▼ 修正: JSONファイルからその人専用のログと状態を読み込む ▼▼▼
+        user_data = get_user_work_data(st.session_state.selected_user)
+        current_status = user_data["current_status"]
+        other_work_logs = user_data["other_work_logs"]
+        other_work_total_min = user_data["other_work_total_min"]
+        other_work_start_time = user_data["other_work_start_time"]
+        
         st.markdown(f"""
         <div class="custom-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <div style="font-weight: bold; color: #2d3748;">📅 {today_str}</div>
-                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if st.session_state.current_status=='出社' else '#dd6b20'};">{st.session_state.current_status}</span></div>
+                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if current_status=='出社' else '#dd6b20'};">{current_status}</span></div>
             </div>
         """, unsafe_allow_html=True)
         
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
-            if st.session_state.current_status == "休憩中":
+            if current_status == "休憩中":
                 if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    st.session_state.current_status = "出社"; st.rerun()
+                    save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
+                    st.rerun()
             else:
-                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(st.session_state.current_status == "別業務中")):
-                    st.session_state.current_status = "休憩中"; st.rerun()
+                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
+                    save_user_work_data(st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time)
+                    st.rerun()
         with btn_c2:
-            if st.session_state.current_status == "別業務中":
+            if current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    st.session_state.current_status = "出社"
-                    # ▼▼▼ 修正: ログの記録時間を日本時間(JST)で取得 ▼▼▼
                     now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    st.session_state.other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
+                    other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
                     
-                    if st.session_state.other_work_start_time:
-                        diff = now - st.session_state.other_work_start_time
+                    if other_work_start_time:
+                        diff = now - other_work_start_time
                         minutes = int(diff.total_seconds() / 60)
-                        st.session_state.other_work_total_min += minutes
-                        st.session_state.other_work_start_time = None
+                        other_work_total_min += minutes
+                        other_work_start_time = None
                         
+                    save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
                     st.rerun()
             else:
-                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(st.session_state.current_status == "休憩中")):
-                    st.session_state.current_status = "別業務中"
-                    # ▼▼▼ 修正: ログの記録時間を日本時間(JST)で取得 ▼▼▼
+                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
                     now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    st.session_state.other_work_start_time = now 
-                    st.session_state.other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
+                    other_work_start_time = now 
+                    other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
+                    save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
                     st.rerun()
                     
-        logs_html = "".join([f"<li>{log}</li>" for log in st.session_state.other_work_logs[-3:]])
+        logs_html = "".join([f"<li>{log}</li>" for log in other_work_logs[-3:]])
         st.markdown(f"""
             <div style="margin-top: 10px; font-size: 0.9em; display: flex; justify-content: space-between; align-items: flex-end;">
                 <div style="width: 60%;">
@@ -372,7 +426,7 @@ if current_tab == "👤 ユーザー":
                 </div>
                 <div style="width: 35%; text-align: right; color: #4a5568;">
                     <strong>別業務合計:</strong><br>
-                    <span style="font-size: 1.4em; font-weight: bold; color: #2d3748;">{st.session_state.other_work_total_min}</span> 分
+                    <span style="font-size: 1.4em; font-weight: bold; color: #2d3748;">{other_work_total_min}</span> 分
                 </div>
             </div>
         </div>
@@ -556,13 +610,11 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
-    # ▼▼▼ 修正: 画面を白くしないスマートな自動更新（ソフトリフレッシュ） ▼▼▼
     if HAS_AUTOREFRESH:
         # 管理者画面を開いている間、60秒ごとに裏側で再読み込みを行う（画面は白くなりません）
         st_autorefresh(interval=60000, key="admin_autorefresh")
     else:
         st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -576,7 +628,6 @@ elif current_tab == "⚙️ 管理者":
             
             col_d, col_t = st.columns(2)
             with col_d:
-                # ▼▼▼ 修正: デフォルトの対象日付も日本時間(JST)で取得 ▼▼▼
                 target_date = st.date_input("対象日付", pd.Timestamp.now(tz='Asia/Tokyo').date())
             with col_t:
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
@@ -752,8 +803,20 @@ elif current_tab == "⚙️ 管理者":
                 fukkatsu_df = completed_df[completed_df['fukkatsu'] == True] if not completed_df.empty else pd.DataFrame()
                 fukkatsu_count = len(fukkatsu_df)
                 
-                # 別業務時間の取得
-                other_work_min = st.session_state.other_work_total_min if user == st.session_state.selected_user else 0
+                # ▼▼▼ 修正: JSONファイルからその人の正確な別業務状態を取得する ▼▼▼
+                user_work_data = get_user_work_data(user)
+                other_work_min = user_work_data["other_work_total_min"]
+                user_status = user_work_data["current_status"]
+                
+                # 現在の作業に、タスクがなければ休憩・別業務ステータスを表示
+                current_action = active_dict.get(user)
+                if current_action:
+                    display_action = f"対応: {current_action}"
+                elif user_status != "出社":
+                    display_action = f"[{user_status}]"
+                else:
+                    display_action = "待機中"
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 summary_data.append({
                     "担当者": user,
@@ -762,7 +825,7 @@ elif current_tab == "⚙️ 管理者":
                     "完了分数": int(comp_min),
                     "復活音源件数": fukkatsu_count,
                     "別業務時間": other_work_min,
-                    "現在の作業": active_dict.get(user, "待機中")
+                    "現在の作業": display_action
                 })
                 
             if summary_data:
