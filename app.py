@@ -2,7 +2,14 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-import time # 追加
+
+# ▼▼▼ 追加: 自動更新用のライブラリをインポート試行 ▼▼▼
+try:
+    from streamlit_autorefresh import st_autorefresh
+    HAS_AUTOREFRESH = True
+except ImportError:
+    HAS_AUTOREFRESH = False
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 1. 初期設定とセッションステート
@@ -204,10 +211,8 @@ header_container = st.container()
 df, api_members, api_settings, api_members_data, fetch_time = fetch_data()
 
 # 復活音源の判定補正ロジック
-# カレンダー上でタイトルから「🔊」が外れても、完了時に確認分数が記録されていれば「復活音源」として強制的に扱う
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
-        # fukkatsu_min が 1 以上の数値であれば fukkatsu フラグを True に上書き
         f_min_num = pd.to_numeric(df['fukkatsu_min'], errors='coerce').fillna(0)
         df.loc[f_min_num > 0, 'fukkatsu'] = True
     elif 'fukkatsu' not in df.columns:
@@ -233,24 +238,18 @@ with header_container:
             st.button("🔄", help="最新データを取得", on_click=handle_refresh)
             
         with ctrl_col1:
-            # カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
             
-            # URLパラメータによる固定化と自動更新ロジックの強化
             url_user = st.query_params.get("user")
             
-            # 初回アクセス時などにURLにuserパラメータがあれば、強制的にセッションへ反映する
             if url_user and url_user in users and st.session_state.selected_user != url_user:
                 st.session_state.selected_user = url_user
                 
-            # 現在のセッションのユーザーのインデックスを取得
             default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
             
-            # ドロップダウンでユーザーが変更されたら、URLパラメータも自動で書き換える関数
             def on_user_change():
                 st.query_params["user"] = st.session_state.selected_user
                 
-            # アプリ起動時にURLパラメータが空であれば、現在のユーザー名を入れておく
             if not url_user:
                  st.query_params["user"] = st.session_state.selected_user
 
@@ -259,16 +258,14 @@ with header_container:
                 users, 
                 index=default_index, 
                 key="selected_user", 
-                on_change=on_user_change, # 変更時にURLを同期
+                on_change=on_user_change,
                 label_visibility="collapsed"
             )
             
         with ctrl_col2:
-            # ▼▼▼ 修正: タブの状態もURLパラメータで管理してリロードに耐えるようにする ▼▼▼
             url_tab = st.query_params.get("tab")
             tab_options = ["👤 ユーザー", "⚙️ 管理者"]
             
-            # URLがadminなら管理者をデフォルトに、それ以外はユーザーをデフォルトにする
             default_tab_index = 1 if url_tab == "admin" else 0
             
             def on_tab_change():
@@ -277,7 +274,6 @@ with header_container:
                 else:
                     st.query_params["tab"] = "user"
                     
-            # アプリ起動時にURLパラメータが空であれば、デフォルトタブ名を入れておく
             if not url_tab:
                  st.query_params["tab"] = "admin" if default_tab_index == 1 else "user"
 
@@ -288,9 +284,8 @@ with header_container:
                 horizontal=True, 
                 label_visibility="collapsed", 
                 key="current_tab",
-                on_change=on_tab_change # 変更時にURLを同期
+                on_change=on_tab_change
             )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
@@ -301,36 +296,27 @@ today_str = datetime.now().strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
     
-    # メンバーへのブックマーク推奨アナウンス
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
-    # 自分のタスクだけをフィルタリング
     my_tasks = pd.DataFrame()
     if not df.empty:
         my_tasks = df[df['assigned'] == st.session_state.selected_user].copy()
     
-    # --- 実績計算 ---
     comp_count_normal = 0
     comp_min_normal = 0
     comp_count_fukkatsu = 0
     comp_min_fukkatsu = 0
     
     if not my_tasks.empty:
-        # 完了タスクの抽出
         completed_df = my_tasks[my_tasks['status'] == '完了']
-        
-        # 通常（代筆完了）
         normal_df = completed_df[completed_df['fukkatsu'] == False]
         comp_count_normal = len(normal_df)
         comp_min_normal = pd.to_numeric(normal_df['duration'], errors='coerce').fillna(0).sum()
         
-        # 復活音源
         fukkatsu_df = completed_df[completed_df['fukkatsu'] == True]
         comp_count_fukkatsu = len(fukkatsu_df)
-        # 復活音源は入力された fukkatsu_min を合計する
         comp_min_fukkatsu = pd.to_numeric(fukkatsu_df['fukkatsu_min'], errors='coerce').fillna(0).sum()
     
-    # --- 上段: 勤怠管理 ＆ 実績サマリー ---
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
@@ -357,7 +343,6 @@ if current_tab == "👤 ユーザー":
                     now = datetime.now()
                     st.session_state.other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
                     
-                    # 開始時間との差分を分単位で計算して加算
                     if st.session_state.other_work_start_time:
                         diff = now - st.session_state.other_work_start_time
                         minutes = int(diff.total_seconds() / 60)
@@ -369,7 +354,7 @@ if current_tab == "👤 ユーザー":
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(st.session_state.current_status == "休憩中")):
                     st.session_state.current_status = "別業務中"
                     now = datetime.now()
-                    st.session_state.other_work_start_time = now # 開始時間を記録
+                    st.session_state.other_work_start_time = now 
                     st.session_state.other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
                     st.rerun()
                     
@@ -418,16 +403,12 @@ if current_tab == "👤 ユーザー":
         today_date = now.date()
         tomorrow_date = today_date + pd.Timedelta(days=1)
         
-        # 自分の「未完了」のタスクを抽出
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
-        # その中で「今日・明日」のものを抽出
         my_active_today_tomorrow = my_active_tasks[my_active_tasks['datetime'].dt.date.isin([today_date, tomorrow_date])]
         
-        # もし自分の今日・明日のタスクが0件（明後日以降しかない、または完全に空）なら表示する
         if my_active_today_tomorrow.empty:
             other_tomorrow_tasks = pd.DataFrame()
             if not df.empty:
-                # 翌日のタスク ＆ 完了・取消以外 ＆ 自分以外の担当（未割当含む） ＆ JOBYminiを除外
                 other_tomorrow_tasks = df[
                     (df['datetime'].dt.date == tomorrow_date) & 
                     (~df['status'].isin(['完了', '取り消し'])) &
@@ -437,7 +418,6 @@ if current_tab == "👤 ユーザー":
                 
             if not other_tomorrow_tasks.empty:
                 st.markdown("<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>📅 翌日の待機タスク (他メンバー/未割当)</div>", unsafe_allow_html=True)
-                # スクロール可能な小窓デザイン
                 task_list_html = "<div class='custom-card' style='padding: 6px 12px; border-left-color: #ecc94b; max-height: 90px; overflow-y: auto; font-size: 0.85em; margin-bottom: 0;'>"
                 for _, t in other_tomorrow_tasks.iterrows():
                     t_time = t['datetime'].strftime('%H:%M')
@@ -572,17 +552,14 @@ if current_tab == "👤 ユーザー":
 # ==========================================
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
-    
-    # 管理者画面を開いている間、60秒ごとに自動更新（リロード）をかける
-    # st.empty()とst.markdownを組み合わせてHTMLのmeta refreshを仕込むハック
-    st.markdown(
-        """
-        <meta http-equiv="refresh" content="60">
-        """,
-        unsafe_allow_html=True
-    )
-    # これにより、このページ（管理者タブ）を表示している間はブラウザが60秒に1回勝手にページをリロードするようになります。
-    # URLパラメータに ?tab=admin が付与されているため、リロード後も管理者画面に留まります。
+
+    # ▼▼▼ 修正: 画面を白くしないスマートな自動更新（ソフトリフレッシュ） ▼▼▼
+    if HAS_AUTOREFRESH:
+        # 管理者画面を開いている間、60秒ごとに裏側で再読み込みを行う（画面は白くなりません）
+        st_autorefresh(interval=60000, key="admin_autorefresh")
+    else:
+        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -854,7 +831,7 @@ elif current_tab == "⚙️ 管理者":
                                 ),
                                 "シフト": st.column_config.SelectboxColumn(
                                     "シフト ✏️",
-                                    options=["早番", "中番"],
+                                    options=["早番", "遅番"],
                                     width="small",
                                     help="クリックしてシフトを変更できます"
                                 ),
@@ -1030,4 +1007,3 @@ elif current_tab == "⚙️ 管理者":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
-
