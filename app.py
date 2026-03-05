@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import time # 追加
 
 # ==========================================
 # 1. 初期設定とセッションステート
@@ -188,10 +189,9 @@ def reset_system():
 # 4. ヘッダー
 # ==========================================
 
-# ▼▼▼ 修正: データ更新用のコールバック関数 ▼▼▼
+# データ更新用のコールバック関数
 def handle_refresh():
     fetch_data.clear()
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ヘッダー全体を1つのコンテナにまとめて固定化
 header_container = st.container()
@@ -226,9 +226,7 @@ with header_container:
     with col_controls:
         ctrl_col0, ctrl_col1, ctrl_col2 = st.columns([0.5, 1.2, 1.2])
         with ctrl_col0:
-            # ▼▼▼ 修正: st.rerun() ではなく、on_clickでキャッシュをクリアする方式に変更 ▼▼▼
             st.button("🔄", help="最新データを取得", on_click=handle_refresh)
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         with ctrl_col1:
             # カレンダー上の名前は拾わず、メンバーシートの登録者のみをプルダウンに表示する
@@ -535,6 +533,18 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
     
+    # ▼▼▼ 追加: 管理者画面を開いている間、60秒ごとに自動更新（リロード）をかける ▼▼▼
+    # st.empty()とst.markdownを組み合わせてHTMLのmeta refreshを仕込むハック
+    st.markdown(
+        """
+        <meta http-equiv="refresh" content="60">
+        """,
+        unsafe_allow_html=True
+    )
+    # これにより、このページ（管理者タブ）を表示している間はブラウザが60秒に1回勝手にページをリロードするようになります。
+    # ※ページがリロードされるとfetch_data()が走るため、自動的に最新のGASデータを取得します。
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
     else:
