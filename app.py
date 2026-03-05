@@ -292,7 +292,8 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 # ==========================================
 # 5. メイン画面（ユーザータブ）
 # ==========================================
-today_str = datetime.now().strftime("%Y-%m-%d")
+# ▼▼▼ 修正: 今日の日付も日本時間で取得するように変更 ▼▼▼
+today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
     
@@ -340,7 +341,8 @@ if current_tab == "👤 ユーザー":
             if st.session_state.current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
                     st.session_state.current_status = "出社"
-                    now = datetime.now()
+                    # ▼▼▼ 修正: ログの記録時間を日本時間(JST)で取得 ▼▼▼
+                    now = pd.Timestamp.now(tz='Asia/Tokyo')
                     st.session_state.other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
                     
                     if st.session_state.other_work_start_time:
@@ -353,7 +355,8 @@ if current_tab == "👤 ユーザー":
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(st.session_state.current_status == "休憩中")):
                     st.session_state.current_status = "別業務中"
-                    now = datetime.now()
+                    # ▼▼▼ 修正: ログの記録時間を日本時間(JST)で取得 ▼▼▼
+                    now = pd.Timestamp.now(tz='Asia/Tokyo')
                     st.session_state.other_work_start_time = now 
                     st.session_state.other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
                     st.rerun()
@@ -573,7 +576,8 @@ elif current_tab == "⚙️ 管理者":
             
             col_d, col_t = st.columns(2)
             with col_d:
-                target_date = st.date_input("対象日付", datetime.now().date())
+                # ▼▼▼ 修正: デフォルトの対象日付も日本時間(JST)で取得 ▼▼▼
+                target_date = st.date_input("対象日付", pd.Timestamp.now(tz='Asia/Tokyo').date())
             with col_t:
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
                 
