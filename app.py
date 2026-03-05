@@ -260,7 +260,33 @@ with header_container:
             )
             
         with ctrl_col2:
-            current_tab = st.radio("画面", ["👤 ユーザー", "⚙️ 管理者"], horizontal=True, label_visibility="collapsed", key="current_tab")
+            # ▼▼▼ 修正: タブの状態もURLパラメータで管理してリロードに耐えるようにする ▼▼▼
+            url_tab = st.query_params.get("tab")
+            tab_options = ["👤 ユーザー", "⚙️ 管理者"]
+            
+            # URLがadminなら管理者をデフォルトに、それ以外はユーザーをデフォルトにする
+            default_tab_index = 1 if url_tab == "admin" else 0
+            
+            def on_tab_change():
+                if st.session_state.current_tab == "⚙️ 管理者":
+                    st.query_params["tab"] = "admin"
+                else:
+                    st.query_params["tab"] = "user"
+                    
+            # アプリ起動時にURLパラメータが空であれば、デフォルトタブ名を入れておく
+            if not url_tab:
+                 st.query_params["tab"] = "admin" if default_tab_index == 1 else "user"
+
+            current_tab = st.radio(
+                "画面", 
+                tab_options, 
+                index=default_tab_index,
+                horizontal=True, 
+                label_visibility="collapsed", 
+                key="current_tab",
+                on_change=on_tab_change # 変更時にURLを同期
+            )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
@@ -533,7 +559,7 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
     
-    # ▼▼▼ 追加: 管理者画面を開いている間、60秒ごとに自動更新（リロード）をかける ▼▼▼
+    # 管理者画面を開いている間、60秒ごとに自動更新（リロード）をかける
     # st.empty()とst.markdownを組み合わせてHTMLのmeta refreshを仕込むハック
     st.markdown(
         """
@@ -542,8 +568,7 @@ elif current_tab == "⚙️ 管理者":
         unsafe_allow_html=True
     )
     # これにより、このページ（管理者タブ）を表示している間はブラウザが60秒に1回勝手にページをリロードするようになります。
-    # ※ページがリロードされるとfetch_data()が走るため、自動的に最新のGASデータを取得します。
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+    # URLパラメータに ?tab=admin が付与されているため、リロード後も管理者画面に留まります。
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
