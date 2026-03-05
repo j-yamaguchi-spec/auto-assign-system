@@ -854,7 +854,7 @@ elif current_tab == "⚙️ 管理者":
                                 ),
                                 "シフト": st.column_config.SelectboxColumn(
                                     "シフト ✏️",
-                                    options=["早番", "遅番"],
+                                    options=["早番", "中番"],
                                     width="small",
                                     help="クリックしてシフトを変更できます"
                                 ),
@@ -1030,3 +1030,4 @@ elif current_tab == "⚙️ 管理者":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
