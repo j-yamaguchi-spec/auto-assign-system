@@ -906,13 +906,26 @@ elif current_tab == "⚙️ 管理者":
         assign_options = [""] + users
         
         # --- 3-1: 待機中案件リスト (編集可) ---
-        st.markdown("<h4 style='color: #4a5568; margin-top: 15px;'>📋 現在の案件リスト (未対応 / 担当者変更可)</h4>", unsafe_allow_html=True)
+        col_w_title, col_w_search = st.columns([3, 1], vertical_alignment="bottom")
+        with col_w_title:
+            st.markdown("<h4 style='color: #4a5568; margin-top: 15px;'>📋 現在の案件リスト (未対応 / 担当者変更可)</h4>", unsafe_allow_html=True)
+        with col_w_search:
+            search_query = st.text_input("検索", placeholder="🔍 案件IDで検索...", label_visibility="collapsed", key="search_waiting")
+            
+        if search_query:
+            # 入力された文字が含まれる案件IDだけをフィルタリング
+            waiting_cases_display_df = waiting_cases_df[waiting_cases_df['案件ID'].astype(str).str.contains(search_query, case=False, na=False)].reset_index(drop=True)
+        else:
+            waiting_cases_display_df = waiting_cases_df
         
-        if waiting_cases_df.empty:
-            st.success("現在待機中の案件はありません。")
+        if waiting_cases_display_df.empty:
+            if search_query:
+                st.info(f"「{search_query}」に一致する待機中案件はありません。")
+            else:
+                st.success("現在待機中の案件はありません。")
         else:
             edited_waiting_df = st.data_editor(
-                waiting_cases_df,
+                waiting_cases_display_df,
                 use_container_width=True,
                 hide_index=True,
                 disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'], # 担当者以外は編集ロック
@@ -930,9 +943,9 @@ elif current_tab == "⚙️ 管理者":
             )
             
             # 変更検知ロジック
-            if not edited_waiting_df.equals(waiting_cases_df):
-                for idx in waiting_cases_df.index:
-                    old_val = waiting_cases_df.loc[idx, '担当者']
+            if not edited_waiting_df.equals(waiting_cases_display_df):
+                for idx in waiting_cases_display_df.index:
+                    old_val = waiting_cases_display_df.loc[idx, '担当者']
                     new_val = edited_waiting_df.loc[idx, '担当者']
                     if old_val != new_val:
                         target_id = edited_waiting_df.loc[idx, '案件ID']
