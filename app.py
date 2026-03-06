@@ -79,6 +79,27 @@ def clear_all_work_data():
             os.remove(WORK_LOG_FILE)
         except Exception:
             pass
+
+# ▼▼▼ 追加: システム全体の設定を保存するためのJSONファイル操作関数 ▼▼▼
+SYSTEM_SETTINGS_FILE = "system_settings.json"
+
+def get_system_settings():
+    if os.path.exists(SYSTEM_SETTINGS_FILE):
+        try:
+            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_system_settings(key, value):
+    data = get_system_settings()
+    data[key] = value
+    try:
+        with open(SYSTEM_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
@@ -458,31 +479,48 @@ if current_tab == "👤 ユーザー":
 
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
-        tomorrow_date = today_date + pd.Timedelta(days=1)
+        
+        # ▼▼▼ 修正: 管理者画面で設定された対象日付を読み込む ▼▼▼
+        sys_settings = get_system_settings()
+        saved_target_date = sys_settings.get("target_date")
+        if saved_target_date:
+            target_end_date = pd.to_datetime(saved_target_date).date()
+        else:
+            target_end_date = today_date + pd.Timedelta(days=1) # デフォルトは翌日
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
-        my_active_today_tomorrow = my_active_tasks[my_active_tasks['datetime'].dt.date.isin([today_date, tomorrow_date])]
         
-        if my_active_today_tomorrow.empty:
-            other_tomorrow_tasks = pd.DataFrame()
+        # 自分の「今日〜指定日」までのタスクを抽出
+        my_active_target_period = my_active_tasks[
+            (my_active_tasks['datetime'].dt.date >= today_date) & 
+            (my_active_tasks['datetime'].dt.date <= target_end_date)
+        ]
+        
+        # もし自分の今日〜指定日までのタスクが0件なら表示する
+        if my_active_target_period.empty:
+            other_target_tasks = pd.DataFrame()
             if not df.empty:
-                other_tomorrow_tasks = df[
-                    (df['datetime'].dt.date == tomorrow_date) & 
+                # 明日 〜 指定日 までのタスクを抽出
+                other_target_tasks = df[
+                    (df['datetime'].dt.date > today_date) & 
+                    (df['datetime'].dt.date <= target_end_date) & 
                     (~df['status'].isin(['完了', '取り消し'])) &
                     (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                     (df['product'] != 'JOBYmini')
                 ].sort_values('datetime')
                 
-            if not other_tomorrow_tasks.empty:
-                st.markdown("<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>📅 翌日の待機タスク (他メンバー/未割当)</div>", unsafe_allow_html=True)
+            if not other_target_tasks.empty:
+                st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>📅 明日〜{target_end_date.strftime('%m/%d')} の待機タスク (他/未割当)</div>", unsafe_allow_html=True)
                 task_list_html = "<div class='custom-card' style='padding: 6px 12px; border-left-color: #ecc94b; max-height: 90px; overflow-y: auto; font-size: 0.85em; margin-bottom: 0;'>"
-                for _, t in other_tomorrow_tasks.iterrows():
+                for _, t in other_target_tasks.iterrows():
+                    t_date = t['datetime'].strftime('%m/%d')
                     t_time = t['datetime'].strftime('%H:%M')
-                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 翌 {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {t['anken_id']}</div>"
+                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_date} {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {t['anken_id']}</div>"
                 task_list_html += "</div>"
                 st.markdown(task_list_html, unsafe_allow_html=True)
             else:
-                st.markdown("<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 翌日の待機タスクはありません</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 明日〜{target_end_date.strftime('%m/%d')} の待機タスクはありません</div>", unsafe_allow_html=True)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 中段: 現在着手中の案件 ---
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
@@ -626,11 +664,22 @@ elif current_tab == "⚙️ 管理者":
             # --- セクション1 (左): 指定日時までのタスク抽出 ---
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
+            # ▼▼▼ 修正: システム設定から対象日付を読み込む ▼▼▼
+            sys_settings = get_system_settings()
+            saved_target_date_str = sys_settings.get("target_date")
+            default_target_date = pd.to_datetime(saved_target_date_str).date() if saved_target_date_str else pd.Timestamp.now(tz='Asia/Tokyo').date()
+
             col_d, col_t = st.columns(2)
             with col_d:
-                target_date = st.date_input("対象日付", pd.Timestamp.now(tz='Asia/Tokyo').date())
+                target_date = st.date_input("対象日付", default_target_date)
+                
+                # 日付が変更されたらシステム設定ファイルに保存する
+                if str(target_date) != saved_target_date_str:
+                    save_system_settings("target_date", str(target_date))
+
             with col_t:
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
             target_datetime = datetime.combine(target_date, target_time)
             target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
