@@ -796,7 +796,7 @@ elif current_tab == "⚙️ 管理者":
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "日付（曜日）": st.column_config.Column("日付（曜日）", width="medium"),
+                    "日付（曜日）": st.column_config.Column("日付（曜日）", width="small"),
                     "他営AM": st.column_config.NumberColumn("他営AM", format="%d 件", width="small"),
                     "他営PM": st.column_config.NumberColumn("他営PM", format="%d 件", width="small"),
                     "自営": st.column_config.NumberColumn("自営", format="%d 件", width="small"),
@@ -1136,4 +1136,5 @@ elif current_tab == "⚙️ 管理者":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
 
