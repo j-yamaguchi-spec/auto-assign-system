@@ -533,18 +533,20 @@ if current_tab == "👤 ユーザー":
         start_t = task['datetime'].strftime('%H:%M')
         duration_m = int(task['duration'])
         
-        with st.container():
+        # ▼▼▼ 修正: 全体をはっきりした枠（border=True）で囲む ▼▼▼
+        with st.container(border=True):
             st.markdown(f"""
-            <div class="custom-card active-card" style="padding-bottom: 8px;">
+            <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 12px;">
                 <div style="font-size: 1.1em; font-weight: bold; color: #2d3748; margin-bottom: 4px;">
                     {task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #2b6cb0;">{task['anken_id']}</span>
                 </div>
                 <div style="color: #4a5568; font-size: 0.95em; margin-bottom: 6px;">
                     📝 {task['title']}
                 </div>
-                <div style="color: #718096; font-size: 0.9em; margin-bottom: 12px;">
+                <div style="color: #718096; font-size: 0.9em;">
                     🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分
                 </div>
+            </div>
             """, unsafe_allow_html=True)
             
             fukkatsu_input = ""
@@ -561,7 +563,6 @@ if current_tab == "👤 ユーザー":
             with act_col3:
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
                     update_status(task['anken_id'], "取り消し")
-            st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
 
@@ -579,29 +580,27 @@ if current_tab == "👤 ユーザー":
             duration_m = int(task['duration'])
             f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
             
-            st.markdown(f"""
-            <div class="custom-card" style="padding: 10px 15px; border-left-color: #a0aec0; margin-bottom: 5px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="width: 100%; padding-right: 15px;">
-                        <div style="font-weight: bold; color: #2d3748; margin-bottom: 2px;">
-                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #4a5568;">{task['anken_id']}</span>
-                        </div>
-                        <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            📝 {task['title']}
-                        </div>
-                        <div style="color: #718096; font-size: 0.85em;">
-                            🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; 🏷️ 未対応
-                        </div>
+            # ▼▼▼ 修正: 全体をはっきりした枠（border=True）で囲む ▼▼▼
+            with st.container(border=True):
+                st.markdown(f"""
+                <div style="border-left: 4px solid #a0aec0; padding-left: 12px; margin-bottom: 8px;">
+                    <div style="font-weight: bold; color: #2d3748; margin-bottom: 2px;">
+                        <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #4a5568;">{task['anken_id']}</span>
                     </div>
-            """, unsafe_allow_html=True)
-            
-            b_col1, b_col2 = st.columns([4, 1])
-            with b_col2:
-                is_disabled = not active_tasks.empty
-                if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
-                    update_status(task['anken_id'], "着手")
-            
-            st.markdown("</div></div>", unsafe_allow_html=True)
+                    <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        📝 {task['title']}
+                    </div>
+                    <div style="color: #718096; font-size: 0.85em;">
+                        🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; 🏷️ 未対応
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                b_col1, b_col2 = st.columns([4, 1])
+                with b_col2:
+                    is_disabled = not active_tasks.empty
+                    if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
+                        update_status(task['anken_id'], "着手")
 
     # --- 最下段: 完了済みのタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 25px; color: #4a5568; font-weight: bold;'>✅ 本日の完了タスク</div>", unsafe_allow_html=True)
@@ -624,23 +623,21 @@ if current_tab == "👤 ユーザー":
                     except:
                         pass
                 
-                st.markdown(f"""
-                <div class="custom-card" style="padding: 10px 15px; border-left-color: #48bb78; background-color: #f0fff4; opacity: 0.75; margin-bottom: 5px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="width: 100%; padding-right: 15px;">
-                            <div style="font-weight: bold; color: #4a5568; margin-bottom: 2px;">
-                                <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #718096;">{task['anken_id']}</span>
-                            </div>
-                            <div style="color: #718096; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: line-through;">
-                                📝 {task['title']}
-                            </div>
-                            <div style="color: #718096; font-size: 0.85em;">
-                                🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; <span style="color: #2f855a; font-weight: bold;">✅ 完了 {f_min_text}</span>
-                            </div>
+                # ▼▼▼ 修正: 完了タスクも統一感を持たせるために枠で囲む ▼▼▼
+                with st.container(border=True):
+                    st.markdown(f"""
+                    <div style="border-left: 4px solid #48bb78; padding-left: 12px; background-color: #f0fff4; opacity: 0.8; padding-top: 5px; padding-bottom: 5px; border-radius: 4px;">
+                        <div style="font-weight: bold; color: #4a5568; margin-bottom: 2px;">
+                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #718096;">{task['anken_id']}</span>
+                        </div>
+                        <div style="color: #718096; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: line-through;">
+                            📝 {task['title']}
+                        </div>
+                        <div style="color: #718096; font-size: 0.85em;">
+                            🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; <span style="color: #2f855a; font-weight: bold;">✅ 完了 {f_min_text}</span>
                         </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
 # ==========================================
 # 6. 管理者タブ
@@ -796,7 +793,7 @@ elif current_tab == "⚙️ 管理者":
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "日付（曜日）": st.column_config.Column("日付（曜日）", width="small"),
+                    "日付（曜日）": st.column_config.Column("日付（曜日）", width="medium"),
                     "他営AM": st.column_config.NumberColumn("他営AM", format="%d 件", width="small"),
                     "他営PM": st.column_config.NumberColumn("他営PM", format="%d 件", width="small"),
                     "自営": st.column_config.NumberColumn("自営", format="%d 件", width="small"),
@@ -947,7 +944,7 @@ elif current_tab == "⚙️ 管理者":
                                 ),
                                 "シフト": st.column_config.SelectboxColumn(
                                     "シフト ✏️",
-                                    options=["早番", "中番"],
+                                    options=["早番", "遅番"],
                                     width="small",
                                     help="クリックしてシフトを変更できます"
                                 ),
@@ -1136,5 +1133,3 @@ elif current_tab == "⚙️ 管理者":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
-
-
