@@ -103,7 +103,7 @@ def save_system_settings(key, value):
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "Yhttps://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -1142,3 +1142,4 @@ if current_tab == "👤 ユーザー":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
