@@ -266,7 +266,7 @@ def reset_system():
         try:
             requests.post(GAS_URL, json=payload)
             
-            # ▼▼▼ 修正: 全ユーザーの別業務ログファイルも削除して初期化 ▼▼▼
+            # 全ユーザーの別業務ログファイルも削除して初期化
             clear_all_work_data()
             
             fetch_data.clear()
@@ -398,7 +398,6 @@ if current_tab == "👤 ユーザー":
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
-        # ▼▼▼ 修正: JSONファイルからその人専用のログと状態を読み込む ▼▼▼
         user_data = get_user_work_data(st.session_state.selected_user)
         current_status = user_data["current_status"]
         other_work_logs = user_data["other_work_logs"]
@@ -489,27 +488,23 @@ if current_tab == "👤 ユーザー":
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
         
-        # ▼▼▼ 修正: 管理者画面で設定された対象日付を読み込む ▼▼▼
         sys_settings = get_system_settings()
         saved_target_date = sys_settings.get("target_date")
+        
         if saved_target_date:
             target_end_date = pd.to_datetime(saved_target_date).date()
         else:
-            target_end_date = today_date + pd.Timedelta(days=1) # デフォルトは翌日
+            target_end_date = today_date + pd.Timedelta(days=1)
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
-        
-        # 自分の「今日〜指定日」までのタスクを抽出
         my_active_target_period = my_active_tasks[
             (my_active_tasks['datetime'].dt.date >= today_date) & 
             (my_active_tasks['datetime'].dt.date <= target_end_date)
         ]
         
-        # もし自分の今日〜指定日までのタスクが0件なら表示する
         if my_active_target_period.empty:
             other_target_tasks = pd.DataFrame()
             if not df.empty:
-                # 明日 〜 指定日 までのタスクを抽出
                 other_target_tasks = df[
                     (df['datetime'].dt.date > today_date) & 
                     (df['datetime'].dt.date <= target_end_date) & 
@@ -529,7 +524,6 @@ if current_tab == "👤 ユーザー":
                 st.markdown(task_list_html, unsafe_allow_html=True)
             else:
                 st.markdown(f"<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 明日〜{target_end_date.strftime('%m/%d')} の待機タスクはありません</div>", unsafe_allow_html=True)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 中段: 現在着手中の案件 ---
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
@@ -557,16 +551,13 @@ if current_tab == "👤 ユーザー":
             </div>
             """, unsafe_allow_html=True)
             
-            # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
             phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
             if phone_str:
-                # 追加: カンマをノーブレークスペース(U+00A0)に置換
                 phone_str = phone_str.replace(",", "\u00A0")
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号 (右のアイコンでコピー)</div>", unsafe_allow_html=True)
                 st.code(phone_str, language="text")
             else:
                 st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             fukkatsu_input = ""
             if task['fukkatsu'] == True:
@@ -614,14 +605,11 @@ if current_tab == "👤 ユーザー":
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
                 phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                 if phone_str:
-                    # 追加: カンマをノーブレークスペース(U+00A0)に置換
                     phone_str = phone_str.replace(",", "\u00A0")
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                     st.code(phone_str, language="text")
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
@@ -665,18 +653,33 @@ if current_tab == "👤 ユーザー":
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
                     phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                     if phone_str:
-                        # 追加: カンマをノーブレークスペース(U+00A0)に置換
                         phone_str = phone_str.replace(",", "\u00A0")
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-top: 8px; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+# ==========================================
+# 6. 管理者タブ
+# ==========================================
+elif current_tab == "⚙️ 管理者":
+    st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
+
+    if HAS_AUTOREFRESH:
+        st_autorefresh(interval=60000, key="admin_autorefresh")
+    else:
+        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
+
+    if df.empty:
+        st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
+    else:
+        # 上部を左右に分割（左: 抽出, 右: ステータス）
+        col_admin_l, col_admin_r = st.columns([1, 1.4])
+        
+        with col_admin_l:
             # --- セクション1 (左): 指定日時までのタスク抽出 ---
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
-            # ▼▼▼ 修正: システム設定から対象日付を読み込む ▼▼▼
             sys_settings = get_system_settings()
             saved_target_date_str = sys_settings.get("target_date")
             default_target_date = pd.to_datetime(saved_target_date_str).date() if saved_target_date_str else pd.Timestamp.now(tz='Asia/Tokyo').date()
@@ -684,19 +687,14 @@ if current_tab == "👤 ユーザー":
             col_d, col_t = st.columns(2)
             with col_d:
                 target_date = st.date_input("対象日付", default_target_date)
-                
-                # 日付が変更されたらシステム設定ファイルに保存する
                 if str(target_date) != saved_target_date_str:
                     save_system_settings("target_date", str(target_date))
-
             with col_t:
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
             target_datetime = datetime.combine(target_date, target_time)
             target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
             
-            # JOBYminiの案件は除外して抽出
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini')].copy()
             
             if filtered_df.empty:
@@ -724,13 +722,13 @@ if current_tab == "👤 ユーザー":
                 past_days = st.number_input("開始(過去〇日)", min_value=0, max_value=365, value=api_settings.get("past_days", 7))
             with col_s2:
                 future_days = st.number_input("終了(未来〇日)", min_value=0, max_value=365, value=api_settings.get("future_days", 30))
+            
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 update_settings(past_days, future_days)
 
-            # 直近1週間の残りタスク数集計（AM/PM・自営分割対応）
+            # 直近1週間の残りタスク数集計
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
-            # タイトルとAM/PM境界時間入力を横並びに配置
             header_col1, header_col2 = st.columns([1.5, 1])
             with header_col1:
                 st.markdown("<h5 style='color: #4a5568; padding-top: 25px;'>📅 直近1週間の残りタスク数</h5>", unsafe_allow_html=True)
@@ -738,24 +736,14 @@ if current_tab == "👤 ユーザー":
                 boundary_time = st.time_input("AM/PM 分割時間 (指定時間までがAM)", datetime.strptime("13:00", "%H:%M").time())
             
             if not df.empty:
-                # 完了以外（着手、中断、未対応）かつ JOBYmini 以外のタスクを抽出
-                target_tasks = df[
-                    (df['status'].isin(['着手', '中断', '未対応'])) & 
-                    (df['product'] != 'JOBYmini')
-                ].copy()
-                
+                target_tasks = df[(df['status'].isin(['着手', '中断', '未対応'])) & (df['product'] != 'JOBYmini')].copy()
                 task_counts = {}
                 if not target_tasks.empty:
-                    # 必要な日時情報を抽出
                     target_tasks['date'] = target_tasks['datetime'].dt.date
                     target_tasks['time'] = target_tasks['datetime'].dt.time
-                    
-                    # 自営判定: methodカラムに「自営」が含まれているか
                     target_tasks['is_jiei'] = target_tasks['method'].astype(str).str.contains('自営', na=False)
-                    # AM判定: 指定した時間（boundary_time）以下かどうか
                     target_tasks['is_am'] = target_tasks['time'] <= boundary_time
                     
-                    # カテゴリ分け関数
                     def categorize(row):
                         if row['is_jiei']:
                             return '自営'
@@ -766,7 +754,6 @@ if current_tab == "👤 ユーザー":
                             
                     target_tasks['category'] = target_tasks.apply(categorize, axis=1)
                     
-                    # 日付とカテゴリで集計
                     for _, row in target_tasks.iterrows():
                         d = row['date']
                         cat = row['category']
@@ -802,7 +789,6 @@ if current_tab == "👤 ユーザー":
                 
             upcoming_df = pd.DataFrame(upcoming_data)
             
-            # データフレームの表示
             st.dataframe(
                 upcoming_df,
                 use_container_width=True,
@@ -820,16 +806,13 @@ if current_tab == "👤 ユーザー":
             # --- セクション2 (右): メンバー稼働ステータス ---
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
             
-            # 着手中のタスクを抽出して辞書化
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
                 active_dict[row['assigned']] = str(row['anken_id'])
                 
-            # 担当者ごとの状態を集計
             summary_data = []
             
-            # メンバー管理シートの全員をデフォルトで表示対象にする
             raw_users_list = api_members if api_members else df['assigned'].fillna('未割当').unique().tolist()
             if "未割当" not in raw_users_list:
                 raw_users_list = list(raw_users_list) + ["未割当"]
@@ -838,12 +821,11 @@ if current_tab == "👤 ユーザー":
             for u in raw_users_list:
                 if pd.isna(u):
                     continue
-                # 前後の空白と全角スペースを完全に除去
                 u_str = str(u).strip().replace("　", "") 
                 if u_str == "":
-                    continue # 空白や見えない文字だけの行は完全にスキップ
+                    continue
                 if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0):
-                    continue # 該当なしの未割当はスキップ
+                    continue
                 if u not in clean_users:
                     clean_users.append(u)
             
@@ -852,24 +834,19 @@ if current_tab == "👤 ユーザー":
                 
                 mitaiou_count = len(user_df[user_df['status'] == '未対応']) if not user_df.empty else 0
                 
-                # 完了タスクの抽出
                 completed_df = user_df[user_df['status'] == '完了'] if not user_df.empty else pd.DataFrame()
                 
-                # 通常（代筆完了）
                 normal_df = completed_df[completed_df['fukkatsu'] == False] if not completed_df.empty else pd.DataFrame()
                 comp_count = len(normal_df)
                 comp_min = pd.to_numeric(normal_df['duration'], errors='coerce').fillna(0).sum() if not normal_df.empty else 0
                 
-                # 復活音源完了
                 fukkatsu_df = completed_df[completed_df['fukkatsu'] == True] if not completed_df.empty else pd.DataFrame()
                 fukkatsu_count = len(fukkatsu_df)
                 
-                # ▼▼▼ 修正: JSONファイルからその人の正確な別業務状態を取得する ▼▼▼
                 user_work_data = get_user_work_data(user)
                 other_work_min = user_work_data["other_work_total_min"]
                 user_status = user_work_data["current_status"]
                 
-                # 現在の作業に、タスクがなければ休憩・別業務ステータスを表示
                 current_action = active_dict.get(user)
                 if current_action:
                     display_action = f"対応: {current_action}"
@@ -877,7 +854,6 @@ if current_tab == "👤 ユーザー":
                     display_action = f"[{user_status}]"
                 else:
                     display_action = "待機中"
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 summary_data.append({
                     "担当者": user,
@@ -891,15 +867,13 @@ if current_tab == "👤 ユーザー":
                 
             if summary_data:
                 sum_df = pd.DataFrame(summary_data)
-                
-                # 文字サイズ0.9remに完全に合わせた高さジャスト計算（1行約30px）
                 calc_height = len(sum_df) * 30 + 38 
                 
                 st.dataframe(
                     sum_df,
                     use_container_width=True,
                     hide_index=True,
-                    height=calc_height,  # ジャストサイズを指定
+                    height=calc_height,
                     column_config={
                         "担当者": st.column_config.Column("担当者", width="small"),
                         "未対応": st.column_config.NumberColumn("未対応", format="%d", width="small"),
@@ -915,54 +889,39 @@ if current_tab == "👤 ユーザー":
 
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
-            # st.expander を使って折りたたみ（アコーディオン）にする
             with st.expander("🛠️ メンバースキル＆勤怠設定 (自動振り分け条件) を開く / 閉じる", expanded=False):
                 if api_members_data:
                     mem_df = pd.DataFrame(api_members_data)
-                    
-                    # 空白行や全角スペースの無効データを徹底的にクレンジング
                     clean_mem_data = []
                     for _, row in mem_df.iterrows():
                         u = row['name']
-                        if pd.isna(u): continue
+                        if pd.isna(u):
+                            continue
                         u_str = str(u).strip().replace("　", "")
-                        if u_str == "": continue
+                        if u_str == "":
+                            continue
                         clean_mem_data.append(row)
                     
                     if clean_mem_data:
                         clean_mem_df = pd.DataFrame(clean_mem_data)
-                        
-                        # シフトデータが存在しない（古いデータ）場合はデフォルトで早番を入れる
                         if 'shift' not in clean_mem_df.columns:
                             clean_mem_df['shift'] = '早番'
                         
-                        # status（勤怠ステータス）と shift（シフト）の列も表示データに含める
                         display_mem_df = clean_mem_df[['name', 'status', 'shift', 'itsuzai', 'agent', 'shukyaku', 'jiei']].copy()
                         display_mem_df.columns = ['担当者', 'ステータス', 'シフト', 'ｲﾂｻﾞｲ', 'ｴｰｼﾞｪﾝﾄ', '集客', '自営(/自)']
                         
-                        # 文字サイズ(0.9rem)に合わせたジャストサイズ計算（1行約30px）
                         calc_skill_height = len(display_mem_df) * 30 + 38
                         
                         edited_mem_df = st.data_editor(
                             display_mem_df,
                             use_container_width=True,
                             hide_index=True,
-                            height=calc_skill_height, # ジャストサイズを適用
+                            height=calc_skill_height,
                             disabled=['担当者'],
                             column_config={
                                 "担当者": st.column_config.Column("担当者", width="small"),
-                                "ステータス": st.column_config.SelectboxColumn(
-                                    "ステータス ✏️",
-                                    options=["出社", "退勤", "欠勤", "休憩中", "別業務中"],
-                                    width="small",
-                                    help="クリックして勤怠を変更できます"
-                                ),
-                                "シフト": st.column_config.SelectboxColumn(
-                                    "シフト ✏️",
-                                    options=["早番", "遅番"],
-                                    width="small",
-                                    help="クリックしてシフトを変更できます"
-                                ),
+                                "ステータス": st.column_config.SelectboxColumn("ステータス ✏️", options=["出社", "退勤", "欠勤", "休憩中", "別業務中"], width="small"),
+                                "シフト": st.column_config.SelectboxColumn("シフト ✏️", options=["早番", "遅番"], width="small"),
                                 "ｲﾂｻﾞｲ": st.column_config.CheckboxColumn("ｲﾂｻﾞｲ", default=False),
                                 "ｴｰｼﾞｪﾝﾄ": st.column_config.CheckboxColumn("ｴｰｼﾞｪﾝﾄ", default=False),
                                 "集客": st.column_config.CheckboxColumn("集客", default=False),
@@ -971,7 +930,6 @@ if current_tab == "👤 ユーザー":
                             key="admin_skills_editor"
                         )
                         
-                        # 変更検知ロジック
                         if not edited_mem_df.equals(display_mem_df):
                             for idx in display_mem_df.index:
                                 old_row = display_mem_df.loc[idx]
@@ -995,13 +953,11 @@ if current_tab == "👤 ユーザー":
         # --- セクション3 (下部): 全案件リスト（未完了と完了を分割） ---
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         
-        # データの整形
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
         all_display_df['担当者'] = all_display_df['担当者'].fillna('')
         
-        # 商材フィルター
         unique_products = all_display_df['商材'].dropna().unique().tolist()
         default_products = [p for p in unique_products if p != "JOBYmini"]
         
@@ -1011,26 +967,21 @@ if current_tab == "👤 ユーザー":
             default=default_products
         )
         
-        # 選択された商材のみにフィルタリング
         filtered_all_df = all_display_df[all_display_df['商材'].isin(selected_products)].copy()
         
-        # 1. 完了した案件
         completed_cases_df = filtered_all_df[filtered_all_df['ステータス'] == '完了'].copy()
         completed_cases_df = completed_cases_df.sort_values('日時', ascending=False).reset_index(drop=True)
         
-        # 2. 着手中・中断中の案件
         in_progress_cases_df = filtered_all_df[filtered_all_df['ステータス'].isin(['着手', '中断'])].copy()
         status_priority_prog = {'着手': 1, '中断': 2}
         in_progress_cases_df['優先度'] = in_progress_cases_df['ステータス'].map(status_priority_prog).fillna(3)
         in_progress_cases_df = in_progress_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
-        # 3. 未対応・取り消しなどの案件（待機中）
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
         waiting_cases_df = waiting_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
-        # 担当者のプルダウン用選択肢
         assign_options = [""] + users
         
         # --- 3-1: 待機中案件リスト (編集可) ---
@@ -1041,7 +992,6 @@ if current_tab == "👤 ユーザー":
             search_query = st.text_input("検索", placeholder="🔍 案件IDで検索...", label_visibility="collapsed", key="search_waiting")
             
         if search_query:
-            # 入力された文字が含まれる案件IDだけをフィルタリング
             waiting_cases_display_df = waiting_cases_df[waiting_cases_df['案件ID'].astype(str).str.contains(search_query, case=False, na=False)].reset_index(drop=True)
         else:
             waiting_cases_display_df = waiting_cases_df
@@ -1056,28 +1006,19 @@ if current_tab == "👤 ユーザー":
                 waiting_cases_display_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'], # 担当者以外は編集ロック
+                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
-                    "担当者": st.column_config.SelectboxColumn(
-                        "担当者 ✏️",
-                        help="クリックして担当者を変更できます",
-                        width="small",
-                        options=assign_options
-                    ),
+                    "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                 },
                 key="admin_waiting_data_editor"
             )
             
-            # 変更検知ロジック
             if not edited_waiting_df.equals(waiting_cases_display_df):
                 for idx in waiting_cases_display_df.index:
-                    old_val = waiting_cases_display_df.loc[idx, '担当者']
-                    new_val = edited_waiting_df.loc[idx, '担当者']
-                    if old_val != new_val:
-                        target_id = edited_waiting_df.loc[idx, '案件ID']
-                        update_assign(target_id, new_val)
+                    if waiting_cases_display_df.loc[idx, '担当者'] != edited_waiting_df.loc[idx, '担当者']:
+                        update_assign(edited_waiting_df.loc[idx, '案件ID'], edited_waiting_df.loc[idx, '担当者'])
                         break
                         
         # --- 3-2: 着手中・中断中案件リスト (編集可) ---
@@ -1091,28 +1032,19 @@ if current_tab == "👤 ユーザー":
                 in_progress_cases_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'], # 担当者以外は編集ロック
+                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
-                    "担当者": st.column_config.SelectboxColumn(
-                        "担当者 ✏️",
-                        help="クリックして担当者を変更できます",
-                        width="small",
-                        options=assign_options
-                    ),
+                    "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                 },
                 key="admin_inprogress_data_editor"
             )
             
-            # 変更検知ロジック
             if not edited_inprogress_df.equals(in_progress_cases_df):
                 for idx in in_progress_cases_df.index:
-                    old_val = in_progress_cases_df.loc[idx, '担当者']
-                    new_val = edited_inprogress_df.loc[idx, '担当者']
-                    if old_val != new_val:
-                        target_id = edited_inprogress_df.loc[idx, '案件ID']
-                        update_assign(target_id, new_val)
+                    if in_progress_cases_df.loc[idx, '担当者'] != edited_inprogress_df.loc[idx, '担当者']:
+                        update_assign(edited_inprogress_df.loc[idx, '案件ID'], edited_inprogress_df.loc[idx, '担当者'])
                         break
 
         # --- 3-3: 完了済み案件リスト (表示のみ) ---
@@ -1129,7 +1061,7 @@ if current_tab == "👤 ユーザー":
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.Column("担当者", width="small"),
-                    "ステータス": st.column_config.Column("ステータス", width="small"),
+                    "ステータス": st.column_config.Column("ステータス", width="small")
                 }
             )
 
@@ -1138,13 +1070,8 @@ if current_tab == "👤 ユーザー":
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
         
         with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
-            st.warning("""
-            **【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。
-            1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。
-            """)
+            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
             
-            # 誤操作防止のチェックボックス
-            confirm_reset = st.checkbox("上記を理解した上で、全リセットを実行します。")
-            if confirm_reset:
+            if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
