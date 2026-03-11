@@ -921,7 +921,7 @@ elif current_tab == "⚙️ 管理者":
                             column_config={
                                 "担当者": st.column_config.Column("担当者", width="small"),
                                 "ステータス": st.column_config.SelectboxColumn("ステータス ✏️", options=["出社", "退勤", "欠勤", "休憩中", "別業務中"], width="small"),
-                                "シフト": st.column_config.SelectboxColumn("シフト ✏️", options=["早番", "遅番"], width="small"),
+                                "シフト": st.column_config.SelectboxColumn("シフト ✏️", options=["早番", "中番"], width="small"),
                                 "ｲﾂｻﾞｲ": st.column_config.CheckboxColumn("ｲﾂｻﾞｲ", default=False),
                                 "ｴｰｼﾞｪﾝﾄ": st.column_config.CheckboxColumn("ｴｰｼﾞｪﾝﾄ", default=False),
                                 "集客": st.column_config.CheckboxColumn("集客", default=False),
@@ -1075,3 +1075,4 @@ elif current_tab == "⚙️ 管理者":
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
