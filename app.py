@@ -560,6 +560,8 @@ if current_tab == "👤 ユーザー":
             # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
             phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
             if phone_str:
+                # 追加: カンマをノーブレークスペース(U+00A0)に置換
+                phone_str = phone_str.replace(",", "\u00A0")
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号 (右のアイコンでコピー)</div>", unsafe_allow_html=True)
                 st.code(phone_str, language="text")
             else:
@@ -615,6 +617,8 @@ if current_tab == "👤 ユーザー":
                 # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
                 phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                 if phone_str:
+                    # 追加: カンマをノーブレークスペース(U+00A0)に置換
+                    phone_str = phone_str.replace(",", "\u00A0")
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                     st.code(phone_str, language="text")
                 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
@@ -664,6 +668,8 @@ if current_tab == "👤 ユーザー":
                     # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
                     phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                     if phone_str:
+                        # 追加: カンマをノーブレークスペース(U+00A0)に置換
+                        phone_str = phone_str.replace(",", "\u00A0")
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-top: 8px; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
                     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
@@ -1142,4 +1148,3 @@ if current_tab == "👤 ユーザー":
             if confirm_reset:
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
-
