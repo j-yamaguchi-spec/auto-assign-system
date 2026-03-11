@@ -103,7 +103,7 @@ def save_system_settings(key, value):
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "https://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
+GAS_URL = "Yhttps://script.google.com/macros/s/AKfycbzQjtNpDuDaJtHesJPFsV666R7czHHkUL7r7JcpjWRexe7vQhG4sKOAZQjLDzGni23S/exec"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -150,7 +150,16 @@ st.markdown("""
         padding-top: 130px !important; 
         padding-bottom: 2rem; 
     }
-    /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
+    
+    /* ▼▼▼ 追加: 電話番号コピー枠（st.code）をコンパクトにするCSS ▼▼▼ */
+    div[data-testid="stCodeBlock"] {
+        margin-bottom: 0.5rem !important;
+    }
+    div[data-testid="stCodeBlock"] pre {
+        padding: 0.6rem !important;
+        font-size: 0.9em !important;
+    }
+    /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
     
     /* 復活音源用の入力欄を小さくする */
     .stNumberInput input { padding: 4px; font-size: 0.9em; }
@@ -533,10 +542,9 @@ if current_tab == "👤 ユーザー":
         start_t = task['datetime'].strftime('%H:%M')
         duration_m = int(task['duration'])
         
-        # ▼▼▼ 修正: 全体をはっきりした枠（border=True）で囲む ▼▼▼
         with st.container(border=True):
             st.markdown(f"""
-            <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 12px;">
+            <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 8px;">
                 <div style="font-size: 1.1em; font-weight: bold; color: #2d3748; margin-bottom: 4px;">
                     {task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #2b6cb0;">{task['anken_id']}</span>
                 </div>
@@ -548,6 +556,15 @@ if current_tab == "👤 ユーザー":
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            
+            # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
+            phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
+            if phone_str:
+                st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号 (右のアイコンでコピー)</div>", unsafe_allow_html=True)
+                st.code(phone_str, language="text")
+            else:
+                st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             fukkatsu_input = ""
             if task['fukkatsu'] == True:
@@ -580,7 +597,6 @@ if current_tab == "👤 ユーザー":
             duration_m = int(task['duration'])
             f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
             
-            # ▼▼▼ 修正: 全体をはっきりした枠（border=True）で囲む ▼▼▼
             with st.container(border=True):
                 st.markdown(f"""
                 <div style="border-left: 4px solid #a0aec0; padding-left: 12px; margin-bottom: 8px;">
@@ -595,6 +611,13 @@ if current_tab == "👤 ユーザー":
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
+                phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
+                if phone_str:
+                    st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
+                    st.code(phone_str, language="text")
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
@@ -623,7 +646,6 @@ if current_tab == "👤 ユーザー":
                     except:
                         pass
                 
-                # ▼▼▼ 修正: 完了タスクも統一感を持たせるために枠で囲む ▼▼▼
                 with st.container(border=True):
                     st.markdown(f"""
                     <div style="border-left: 4px solid #48bb78; padding-left: 12px; background-color: #f0fff4; opacity: 0.8; padding-top: 5px; padding-bottom: 5px; border-radius: 4px;">
@@ -638,26 +660,13 @@ if current_tab == "👤 ユーザー":
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-
-# ==========================================
-# 6. 管理者タブ
-# ==========================================
-elif current_tab == "⚙️ 管理者":
-    st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
-
-    if HAS_AUTOREFRESH:
-        # 管理者画面を開いている間、60秒ごとに裏側で再読み込みを行う（画面は白くなりません）
-        st_autorefresh(interval=60000, key="admin_autorefresh")
-    else:
-        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
-
-    if df.empty:
-        st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
-    else:
-        # 上部を左右に分割（左: 抽出, 右: ステータス）
-        col_admin_l, col_admin_r = st.columns([1, 1.4])
-        
-        with col_admin_l:
+                    
+                    # ▼▼▼ 追加: 電話番号の表示とコピー機能 ▼▼▼
+                    phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
+                    if phone_str:
+                        st.markdown("<div style='font-size: 0.8em; color: #718096; margin-top: 8px; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
+                        st.code(phone_str, language="text")
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             # --- セクション1 (左): 指定日時までのタスク抽出 ---
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
