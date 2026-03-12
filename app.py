@@ -1300,3 +1300,4 @@ elif current_tab == "📖 監査マニュアル":
         
         # 作成したHTML/JSを、高さ800pxのスクロール可能なパーツとして一括で埋め込む
         components.html(html_content, height=800, scrolling=True)
+
