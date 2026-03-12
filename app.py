@@ -140,7 +140,8 @@ def save_task_time(anken_id, time_str):
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "YOUR_GAS_URL_HERE"
+GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec
+"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
