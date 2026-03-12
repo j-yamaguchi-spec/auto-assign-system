@@ -588,7 +588,8 @@ if current_tab == "👤 ユーザー":
                 
             with col_phone:
                 if phone_str:
-                    phone_str = phone_str.replace(",", "\u00A0")
+                    # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
+                    phone_str = phone_str.replace(",", " ")
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                     st.code(phone_str, language="text")
             # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
@@ -647,7 +648,8 @@ if current_tab == "👤 ユーザー":
                     st.code(task['anken_id'], language="text")
                 with col_phone:
                     if phone_str:
-                        phone_str = phone_str.replace(",", "\u00A0")
+                        # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
+                        phone_str = phone_str.replace(",", " ")
                         st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
                 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
@@ -697,7 +699,8 @@ if current_tab == "👤 ユーザー":
                     st.code(task['anken_id'], language="text")
                 with col_phone:
                     if phone_str:
-                        phone_str = phone_str.replace(",", "\u00A0")
+                        # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
+                        phone_str = phone_str.replace(",", " ")
                         st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
                 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
@@ -1200,7 +1203,8 @@ elif current_tab == "⚙️ 管理者":
                         st.code(task['anken_id'], language="text")
                     with col_phone:
                         if phone_str:
-                            phone_str = phone_str.replace(",", "\u00A0")
+                            # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
+                            phone_str = phone_str.replace(",", " ")
                             st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                             st.code(phone_str, language="text")
                     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
