@@ -580,7 +580,7 @@ if current_tab == "👤 ユーザー":
             
             phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
             
-            # ▼▼▼ 変更: 案件IDと電話番号を横並びでコピーできるように配置 ▼▼▼
+            # 案件IDと電話番号を横並びでコピーできるように配置
             col_id, col_phone = st.columns(2)
             with col_id:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
@@ -588,11 +588,10 @@ if current_tab == "👤 ユーザー":
                 
             with col_phone:
                 if phone_str:
-                    # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
+                    # ノーブレークスペースではなく、通常の半角スペースに置換する
                     phone_str = phone_str.replace(",", " ")
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                     st.code(phone_str, language="text")
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             fukkatsu_input = ""
             if task['fukkatsu'] == True:
@@ -607,12 +606,11 @@ if current_tab == "👤 ユーザー":
                     update_status(task['anken_id'], "中断")
             with act_col3:
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
-                    # ※手動で「未対応」に変更された処理を維持
                     update_status(task['anken_id'], "未対応")
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
 
-    # ▼▼▼ 追加: 中断中のタスクリスト ▼▼▼
+    # --- 中段: 中断中のタスクリスト ---
     paused_tasks = my_tasks[my_tasks['status'] == '中断'].sort_values('datetime') if not my_tasks.empty else pd.DataFrame()
     
     if not paused_tasks.empty:
@@ -641,25 +639,21 @@ if current_tab == "👤 ユーザー":
                 
                 phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                 
-                # ▼▼▼ 変更: 案件IDと電話番号を横並びでコピーできるように配置 ▼▼▼
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
                     st.code(task['anken_id'], language="text")
                 with col_phone:
                     if phone_str:
-                        # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
                         phone_str = phone_str.replace(",", " ")
                         st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
                     if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
                         update_status(task['anken_id'], "着手")
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 下段: 待機中のタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
@@ -692,18 +686,15 @@ if current_tab == "👤 ユーザー":
                 
                 phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                 
-                # ▼▼▼ 変更: 案件IDと電話番号を横並びでコピーできるように配置 ▼▼▼
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
                     st.code(task['anken_id'], language="text")
                 with col_phone:
                     if phone_str:
-                        # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
                         phone_str = phone_str.replace(",", " ")
                         st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                         st.code(phone_str, language="text")
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
@@ -736,7 +727,7 @@ if current_tab == "👤 ユーザー":
                     st.markdown(f"""
                     <div style="border-left: 4px solid #48bb78; padding-left: 12px; background-color: #f0fff4; opacity: 0.8; padding-top: 5px; padding-bottom: 5px; border-radius: 4px;">
                         <div style="font-weight: bold; color: #4a5568; margin-bottom: 2px;">
-                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #718096;">{task['anken_id']}</span>
+                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
                         </div>
                         <div style="color: #718096; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: line-through;">
                             📝 {task['title']}
@@ -748,10 +739,17 @@ if current_tab == "👤 ユーザー":
                     """, unsafe_allow_html=True)
                     
                     phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
-                    if phone_str:
-                        phone_str = phone_str.replace(",", "\u00A0")
-                        st.markdown("<div style='font-size: 0.8em; color: #718096; margin-top: 8px; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
-                        st.code(phone_str, language="text")
+                    
+                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                    col_id, col_phone = st.columns(2)
+                    with col_id:
+                        st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
+                        st.code(task['anken_id'], language="text")
+                    with col_phone:
+                        if phone_str:
+                            phone_str = phone_str.replace(",", " ")
+                            st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
+                            st.code(phone_str, language="text")
 
 # ==========================================
 # 6. 管理者タブ
@@ -900,9 +898,7 @@ elif current_tab == "⚙️ 管理者":
             # --- セクション2 (右): メンバー稼働ステータス ---
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
             
-            # ▼▼▼ 追加: 保存されている着手時間を取得 ▼▼▼
             task_times = get_task_times()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
@@ -947,9 +943,7 @@ elif current_tab == "⚙️ 管理者":
                 
                 current_action = active_dict.get(user)
                 if current_action:
-                    # ▼▼▼ 修正: 上部の表はシンプルに戻し、開始時間は下のリストに移動 ▼▼▼
                     display_action = f"対応: {current_action}"
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 elif user_status != "出社":
                     display_action = f"[{user_status}]"
                 else:
@@ -1077,13 +1071,11 @@ elif current_tab == "⚙️ 管理者":
         in_progress_cases_df['優先度'] = in_progress_cases_df['ステータス'].map(status_priority_prog).fillna(3)
         in_progress_cases_df = in_progress_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
-        # ▼▼▼ 追加: 着手中・中断中リストに「開始時間」列を追加して並び替え ▼▼▼
         task_times = get_task_times()
         in_progress_cases_df['開始時間'] = in_progress_cases_df['案件ID'].astype(str).map(task_times).fillna('')
         
         in_progress_cols = ['担当者', 'ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
         in_progress_cases_df = in_progress_cases_df[in_progress_cols]
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
         status_priority_wait = {'未対応': 1, '取り消し': 2}
@@ -1140,13 +1132,11 @@ elif current_tab == "⚙️ 管理者":
                 in_progress_cases_df,
                 use_container_width=True,
                 hide_index=True,
-                # ▼▼▼ 修正: 開始時間をロック対象に追加 ▼▼▼
                 disabled=['ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
-                    # ▼▼▼ 追加: 開始時間列の表示設定 ▼▼▼
                     "開始時間": st.column_config.Column("開始時間", width="small"),
                 },
                 key="admin_inprogress_data_editor"
@@ -1163,52 +1153,26 @@ elif current_tab == "⚙️ 管理者":
         st.markdown("<h4 style='color: #4a5568;'>✅ 完了済みの案件リスト</h4>", unsafe_allow_html=True)
         
         if completed_cases_df.empty:
-            st.info("本日完了したタスクはまだありません。")
+            st.info("完了済みの案件はまだありません。")
         else:
-            for idx, task in completed_cases_df.sort_values('datetime', ascending=False).iterrows():
-                task_date = task['datetime'].strftime('%m/%d')
-                start_t = task['datetime'].strftime('%H:%M')
-                duration_m = int(task['duration'])
-                f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
-                
-                f_min_text = ""
-                if task['fukkatsu'] and pd.notna(task['fukkatsu_min']) and str(task['fukkatsu_min']).strip() != "":
-                    try:
-                        f_min_text = f"(確認: {int(float(task['fukkatsu_min']))}分)"
-                    except:
-                        pass
-                
-                with st.container(border=True):
-                    st.markdown(f"""
-                    <div style="border-left: 4px solid #48bb78; padding-left: 12px; background-color: #f0fff4; opacity: 0.8; padding-top: 5px; padding-bottom: 5px; border-radius: 4px;">
-                        <div style="font-weight: bold; color: #4a5568; margin-bottom: 2px;">
-                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
-                        </div>
-                        <div style="color: #718096; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: line-through;">
-                            📝 {task['title']}
-                        </div>
-                        <div style="color: #718096; font-size: 0.85em;">
-                            🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; <span style="color: #2f855a; font-weight: bold;">✅ 完了 {f_min_text}</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
-                    
-                    # ▼▼▼ 変更: 案件IDと電話番号を横並びでコピーできるように配置 ▼▼▼
-                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                    col_id, col_phone = st.columns(2)
-                    with col_id:
-                        st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                        st.code(task['anken_id'], language="text")
-                    with col_phone:
-                        if phone_str:
-                            # ▼ 修正: 特殊なノーブレークスペースではなく、通常の半角スペースに置換する
-                            phone_str = phone_str.replace(",", " ")
-                            st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
-                            st.code(phone_str, language="text")
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            st.dataframe(
+                completed_cases_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "タイトル": st.column_config.Column("タイトル", width="large"),
+                    "担当者": st.column_config.Column("担当者", width="small"),
+                    "ステータス": st.column_config.Column("ステータス", width="small")
+                }
+            )
 
-# ==========================================
-# 6. 管理者タブ
-# ==========================================
+        # システム全リセット
+        st.markdown("<hr style='margin: 40px 0 20px 0; border-top: solid 2px #e53e3e;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
+        
+        with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
+            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
+            
+            if st.checkbox("上記を理解した上で、全リセットを実行します。"):
+                if st.button("🔥 実行する (元に戻せません)", type="primary"):
+                    reset_system()
