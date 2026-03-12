@@ -599,7 +599,7 @@ if current_tab == "👤 ユーザー":
                 other_target_tasks = df[
                     (df['datetime'].dt.date > today_date) & 
                     (df['datetime'].dt.date <= target_end_date) & 
-                    (~df['status'].isin(['完了', '取り消し'])) &
+                    (df['status'] == '未対応') &  # ▼ 修正: 「未対応」の案件のみを抽出するように変更
                     (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                     (df['product'] != 'JOBYmini')
                 ].sort_values('datetime')
