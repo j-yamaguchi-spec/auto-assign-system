@@ -572,7 +572,7 @@ if current_tab == "👤 ユーザー":
                     update_status(task['anken_id'], "中断")
             with act_col3:
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
-                    update_status(task['anken_id'], "取り消し")
+                    update_status(task['anken_id'], "未対応")
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
 
@@ -1075,4 +1075,5 @@ elif current_tab == "⚙️ 管理者":
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
 
