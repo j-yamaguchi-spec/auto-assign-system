@@ -773,7 +773,9 @@ elif current_tab == "⚙️ 管理者":
             target_datetime = datetime.combine(target_date, target_time)
             target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
             
-            filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini')].copy()
+            # ▼▼▼ 修正: 「完了」や「取り消し」のタスクを除外し、リアルタイムに有効なものだけにする ▼▼▼
+            filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
