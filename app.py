@@ -140,7 +140,7 @@ def save_task_time(anken_id, time_str):
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
+GAS_URL = "YOUR_GAS_URL_HERE"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -574,6 +574,16 @@ if current_tab == "👤 ユーザー":
                         cancel_count=new_count
                     )
                     st.rerun()
+
+            # ▼▼▼ 追加: 代筆中キャンセル登録フォームへのリンク ▼▼▼
+            st.markdown("""
+            <div style='margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; text-align: right;'>
+                <a href='https://231707ee.form.kintoneapp.com/public/surrender' target='_blank' rel='noopener noreferrer' style='color: #2b6cb0; text-decoration: none; font-size: 0.85em; font-weight: bold;'>
+                    📝 代筆中キャンセル登録フォーム
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         now = pd.Timestamp.now(tz='Asia/Tokyo')
