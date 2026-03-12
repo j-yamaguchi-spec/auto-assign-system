@@ -921,12 +921,8 @@ elif current_tab == "⚙️ 管理者":
                 
                 current_action = active_dict.get(user)
                 if current_action:
-                    # ▼▼▼ 修正: 着手時間も一緒に表示する ▼▼▼
-                    started_time = task_times.get(current_action, "")
-                    if started_time:
-                        display_action = f"対応: {current_action} (開始 {started_time})"
-                    else:
-                        display_action = f"対応: {current_action}"
+                    # ▼▼▼ 修正: 上部の表はシンプルに戻し、開始時間は下のリストに移動 ▼▼▼
+                    display_action = f"対応: {current_action}"
                     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 elif user_status != "出社":
                     display_action = f"[{user_status}]"
@@ -1055,6 +1051,14 @@ elif current_tab == "⚙️ 管理者":
         in_progress_cases_df['優先度'] = in_progress_cases_df['ステータス'].map(status_priority_prog).fillna(3)
         in_progress_cases_df = in_progress_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
+        # ▼▼▼ 追加: 着手中・中断中リストに「開始時間」列を追加して並び替え ▼▼▼
+        task_times = get_task_times()
+        in_progress_cases_df['開始時間'] = in_progress_cases_df['案件ID'].astype(str).map(task_times).fillna('')
+        
+        in_progress_cols = ['担当者', 'ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
+        in_progress_cases_df = in_progress_cases_df[in_progress_cols]
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
@@ -1110,11 +1114,14 @@ elif current_tab == "⚙️ 管理者":
                 in_progress_cases_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                # ▼▼▼ 修正: 開始時間をロック対象に追加 ▼▼▼
+                disabled=['ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
+                    # ▼▼▼ 追加: 開始時間列の表示設定 ▼▼▼
+                    "開始時間": st.column_config.Column("開始時間", width="small"),
                 },
                 key="admin_inprogress_data_editor"
             )
