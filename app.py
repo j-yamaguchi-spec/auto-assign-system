@@ -3,8 +3,10 @@ import requests
 import pandas as pd
 from datetime import datetime
 import time
-import json # 追加: ログ保存用
-import os   # 追加: ファイル操作用
+import json
+import os
+import streamlit.components.v1 as components # 追加: HTMLカードグリッド埋め込み用
+import html as html_lib # 追加: セキュリティエスケープ用
 
 # ▼▼▼ 追加: 自動更新用のライブラリをインポート試行 ▼▼▼
 try:
@@ -150,8 +152,7 @@ st.markdown("""
         overflow-y: auto; margin-top: 5px; padding-left: 20px;
     }
     
-    /* ▼▼▼ 修正: 画面全体が固まるのを防ぐ！ヘッダー「だけ」を狙い撃ちする超精密CSS ▼▼▼ */
-    /* 目印を持つ「最も内側の」ブロックだけを絶対固定する */
+    /* ヘッダーの固定 */
     div[data-testid="stVerticalBlock"]:has(#sticky-header-anchor):not(:has(div[data-testid="stVerticalBlock"]:has(#sticky-header-anchor))) {
         position: fixed !important;
         top: 0 !important;
@@ -161,28 +162,28 @@ st.markdown("""
         z-index: 9999 !important;
         background-color: rgba(244, 247, 249, 0.95) !important;
         backdrop-filter: blur(5px) !important;
-        padding: 2.5rem 3rem 1rem 3rem !important; /* 左右の余白を調整 */
+        padding: 2.5rem 3rem 1rem 3rem !important; 
         border-bottom: 1px solid #e2e8f0 !important;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
     }
     
-    /* Fixedで浮いたヘッダーの分、下のコンテンツが隠れないように押し下げる */
     .block-container { 
         padding-top: 130px !important; 
         padding-bottom: 2rem; 
     }
     
-    /* ▼▼▼ 追加: 電話番号コピー枠（st.code）をコンパクトにするCSS ▼▼▼ */
+    /* ▼▼▼ 追加: コードブロック(コピー枠)内の長文を折り返すCSS ▼▼▼ */
     div[data-testid="stCodeBlock"] {
         margin-bottom: 0.5rem !important;
     }
     div[data-testid="stCodeBlock"] pre {
         padding: 0.6rem !important;
         font-size: 0.9em !important;
+        white-space: pre-wrap !important; /* 長文を折り返す */
+        word-break: break-word !important; /* 枠からはみ出さないようにする */
     }
     /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
     
-    /* 復活音源用の入力欄を小さくする */
     .stNumberInput input { padding: 4px; font-size: 0.9em; }
 </style>
 """, unsafe_allow_html=True)
@@ -190,40 +191,35 @@ st.markdown("""
 # ==========================================
 # 3. バックエンド通信ロジック
 # ==========================================
-@st.cache_data(ttl=60) # 60秒間キャッシュ（ボタン操作で強制クリア）
+@st.cache_data(ttl=60) 
 def fetch_data():
     try:
         response = requests.get(GAS_URL)
-        # データ取得時のタイムスタンプを日本時間(JST)で記録
         fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
         if response.status_code == 200:
             data = response.json()
             if data.get("status") == "success":
                 df = pd.DataFrame(data.get("data", []))
                 if not df.empty:
-                    # UTCの日時文字列をJST（日本時間）に変換してフォーマット
                     df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
                 
-                # GASから送られてきたメンバー一覧を取得
                 members = data.get("members", [])
-                
-                # 設定値とメンバー詳細データを取得
                 api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
                 members_data = data.get("membersData", [])
                 
-                return df, members, api_settings, members_data, fetch_time
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], fetch_time
+                api_manual_data = data.get("manualData", [])
+                
+                return df, members, api_settings, members_data, api_manual_data, fetch_time
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], fetch_time
     except Exception as e:
         st.error(f"通信エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
     with st.spinner('ステータスを更新中...'):
-        # ▼▼▼ 追加: 着手ボタンを押した時刻を記録 ▼▼▼
         if new_status == "着手":
             now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
             save_task_time(anken_id, now_str)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         payload = {
             "action": "update_status",
@@ -292,10 +288,7 @@ def reset_system():
         }
         try:
             requests.post(GAS_URL, json=payload)
-            
-            # 全ユーザーの別業務ログファイルも削除して初期化
             clear_all_work_data()
-            
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -304,18 +297,12 @@ def reset_system():
 # ==========================================
 # 4. ヘッダー
 # ==========================================
-
-# データ更新用のコールバック関数
 def handle_refresh():
     fetch_data.clear()
 
-# ヘッダー全体を1つのコンテナにまとめて固定化
 header_container = st.container()
+df, api_members, api_settings, api_members_data, api_manual_data, fetch_time = fetch_data()
 
-# データとメンバー一覧を取得
-df, api_members, api_settings, api_members_data, fetch_time = fetch_data()
-
-# 復活音源の判定補正ロジック
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
         f_min_num = pd.to_numeric(df['fukkatsu_min'], errors='coerce').fillna(0)
@@ -324,7 +311,6 @@ if not df.empty:
         df['fukkatsu'] = False
 
 with header_container:
-    # CSSにこのコンテナを「固定する場所」と教えるための目印（アンカー）
     st.markdown('<div id="sticky-header-anchor"></div>', unsafe_allow_html=True)
 
     col_title, col_controls = st.columns([1.5, 1])
@@ -338,13 +324,12 @@ with header_container:
         """, unsafe_allow_html=True)
 
     with col_controls:
-        ctrl_col0, ctrl_col1, ctrl_col2 = st.columns([0.5, 1.2, 1.2])
+        ctrl_col0, ctrl_col1, ctrl_col2 = st.columns([0.4, 1.2, 1.5])
         with ctrl_col0:
             st.button("🔄", help="最新データを取得", on_click=handle_refresh)
             
         with ctrl_col1:
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
-            
             url_user = st.query_params.get("user")
             
             if url_user and url_user in users and st.session_state.selected_user != url_user:
@@ -369,18 +354,24 @@ with header_container:
             
         with ctrl_col2:
             url_tab = st.query_params.get("tab")
-            tab_options = ["👤 ユーザー", "⚙️ 管理者"]
+            tab_options = ["👤 ユーザー", "⚙️ 管理者", "📖 監査マニュアル"]
             
-            default_tab_index = 1 if url_tab == "admin" else 0
+            default_tab_index = 0
+            if url_tab == "admin":
+                default_tab_index = 1
+            elif url_tab == "manual":
+                default_tab_index = 2
             
             def on_tab_change():
                 if st.session_state.current_tab == "⚙️ 管理者":
                     st.query_params["tab"] = "admin"
+                elif st.session_state.current_tab == "📖 監査マニュアル":
+                    st.query_params["tab"] = "manual"
                 else:
                     st.query_params["tab"] = "user"
                     
             if not url_tab:
-                 st.query_params["tab"] = "admin" if default_tab_index == 1 else "user"
+                 st.query_params["tab"] = "user"
 
             current_tab = st.radio(
                 "画面", 
@@ -400,7 +391,6 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
-    
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
     my_tasks = pd.DataFrame()
@@ -580,7 +570,6 @@ if current_tab == "👤 ユーザー":
             
             phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
             
-            # 案件IDと電話番号を横並びでコピーできるように配置
             col_id, col_phone = st.columns(2)
             with col_id:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
@@ -588,7 +577,6 @@ if current_tab == "👤 ユーザー":
                 
             with col_phone:
                 if phone_str:
-                    # ノーブレークスペースではなく、通常の半角スペースに置換する
                     phone_str = phone_str.replace(",", " ")
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                     st.code(phone_str, language="text")
@@ -765,11 +753,9 @@ elif current_tab == "⚙️ 管理者":
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
     else:
-        # 上部を左右に分割（左: 抽出, 右: ステータス）
         col_admin_l, col_admin_r = st.columns([1, 1.4])
         
         with col_admin_l:
-            # --- セクション1 (左): 指定日時までのタスク抽出 ---
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
             sys_settings = get_system_settings()
@@ -805,7 +791,6 @@ elif current_tab == "⚙️ 管理者":
                     hide_index=True
                 )
 
-            # カレンダー設定
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #4a5568;'>⚙️ カレンダー取得範囲設定</h5>", unsafe_allow_html=True)
             
@@ -818,7 +803,6 @@ elif current_tab == "⚙️ 管理者":
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 update_settings(past_days, future_days)
 
-            # 直近1週間の残りタスク数集計
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
             header_col1, header_col2 = st.columns([1.5, 1])
@@ -895,7 +879,6 @@ elif current_tab == "⚙️ 管理者":
             )
 
         with col_admin_r:
-            # --- セクション2 (右): メンバー稼働ステータス ---
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
             
             task_times = get_task_times()
@@ -913,15 +896,11 @@ elif current_tab == "⚙️ 管理者":
             
             clean_users = []
             for u in raw_users_list:
-                if pd.isna(u):
-                    continue
+                if pd.isna(u): continue
                 u_str = str(u).strip().replace("　", "") 
-                if u_str == "":
-                    continue
-                if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0):
-                    continue
-                if u not in clean_users:
-                    clean_users.append(u)
+                if u_str == "": continue
+                if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0): continue
+                if u not in clean_users: clean_users.append(u)
             
             for user in clean_users:
                 user_df = df[df['assigned'].fillna('未割当') == user] if not df.empty else pd.DataFrame()
@@ -989,11 +968,9 @@ elif current_tab == "⚙️ 管理者":
                     clean_mem_data = []
                     for _, row in mem_df.iterrows():
                         u = row['name']
-                        if pd.isna(u):
-                            continue
+                        if pd.isna(u): continue
                         u_str = str(u).strip().replace("　", "")
-                        if u_str == "":
-                            continue
+                        if u_str == "": continue
                         clean_mem_data.append(row)
                     
                     if clean_mem_data:
@@ -1030,13 +1007,8 @@ elif current_tab == "⚙️ 管理者":
                                 new_row = edited_mem_df.loc[idx]
                                 if not old_row.equals(new_row):
                                     update_skills(
-                                        new_row['担当者'],
-                                        new_row['ステータス'],
-                                        new_row['シフト'],
-                                        bool(new_row['ｲﾂｻﾞｲ']),
-                                        bool(new_row['ｴｰｼﾞｪﾝﾄ']),
-                                        bool(new_row['集客']),
-                                        bool(new_row['自営(/自)'])
+                                        new_row['担当者'], new_row['ステータス'], new_row['シフト'],
+                                        bool(new_row['ｲﾂｻﾞｲ']), bool(new_row['ｴｰｼﾞｪﾝﾄ']), bool(new_row['集客']), bool(new_row['自営(/自)'])
                                     )
                                     break
                     else:
@@ -1044,7 +1016,6 @@ elif current_tab == "⚙️ 管理者":
                 else:
                     st.info("メンバー設定データがありません。")
 
-        # --- セクション3 (下部): 全案件リスト（未完了と完了を分割） ---
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
@@ -1084,7 +1055,6 @@ elif current_tab == "⚙️ 管理者":
         
         assign_options = [""] + users
         
-        # --- 3-1: 待機中案件リスト (編集可) ---
         col_w_title, col_w_search = st.columns([3, 1], vertical_alignment="bottom")
         with col_w_title:
             st.markdown("<h4 style='color: #4a5568; margin-top: 15px;'>📋 現在の案件リスト (未対応 / 担当者変更可)</h4>", unsafe_allow_html=True)
@@ -1097,10 +1067,8 @@ elif current_tab == "⚙️ 管理者":
             waiting_cases_display_df = waiting_cases_df
         
         if waiting_cases_display_df.empty:
-            if search_query:
-                st.info(f"「{search_query}」に一致する待機中案件はありません。")
-            else:
-                st.success("現在待機中の案件はありません。")
+            if search_query: st.info(f"「{search_query}」に一致する待機中案件はありません。")
+            else: st.success("現在待機中の案件はありません。")
         else:
             edited_waiting_df = st.data_editor(
                 waiting_cases_display_df,
@@ -1121,7 +1089,6 @@ elif current_tab == "⚙️ 管理者":
                         update_assign(edited_waiting_df.loc[idx, '案件ID'], edited_waiting_df.loc[idx, '担当者'])
                         break
                         
-        # --- 3-2: 着手中・中断中案件リスト (編集可) ---
         st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>🏃 着手中・中断中の案件リスト (担当者変更可)</h4>", unsafe_allow_html=True)
         
@@ -1148,7 +1115,6 @@ elif current_tab == "⚙️ 管理者":
                         update_assign(edited_inprogress_df.loc[idx, '案件ID'], edited_inprogress_df.loc[idx, '担当者'])
                         break
 
-        # --- 3-3: 完了済み案件リスト (表示のみ) ---
         st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>✅ 完了済みの案件リスト</h4>", unsafe_allow_html=True)
         
@@ -1166,13 +1132,171 @@ elif current_tab == "⚙️ 管理者":
                 }
             )
 
-        # システム全リセット
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: solid 2px #e53e3e;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
         
         with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
             st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
-            
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
+# ==========================================
+# 7. 監査マニュアルタブ
+# ==========================================
+elif current_tab == "📖 監査マニュアル":
+    st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>📖 監査マニュアル</h2>", unsafe_allow_html=True)
+    
+    if not api_manual_data:
+        st.warning("現在表示できるデータがありません。（GASからデータを取得できていないか、スプレッドシートが空です）")
+        st.info("※GASのdoGet関数を最新のものに更新しているか確認してください。")
+    else:
+        st.info("💡 **一括コピー機能:** 以下のカードの**どこでもクリックするだけ**で、中身のテキストがクリップボードに一発でコピーされます！")
+        
+        # ▼▼▼ HTMLとJSを組み合わせた「爆速・1クリックコピーツール」を構築 ▼▼▼
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: sans-serif; margin: 0; padding: 10px; background-color: #f4f7f9; }
+                .grid-container {
+                    display: grid;
+                    grid-template-columns: repeat(6, 1fr);
+                    gap: 10px;
+                }
+                .header-card {
+                    background-color: #2c5282;
+                    color: white;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 10px;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    position: sticky;
+                    top: 0;
+                    z-index: 10;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .cell-card {
+                    background-color: white;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 6px;
+                    padding: 12px;
+                    font-size: 13px;
+                    color: #4a5568;
+                    cursor: pointer;
+                    position: relative;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                    min-height: 80px;
+                }
+                .cell-card:hover {
+                    border-color: #4299e1;
+                    box-shadow: 0 4px 6px rgba(66, 153, 225, 0.2);
+                    transform: translateY(-2px);
+                }
+                .cell-card:active {
+                    background-color: #ebf8ff;
+                    transform: translateY(0);
+                }
+                .text-content {
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    margin-bottom: 10px;
+                    pointer-events: none; /* クリック判定を親要素に逃がす */
+                }
+                .copied-badge {
+                    position: absolute;
+                    bottom: 8px;
+                    right: 8px;
+                    background-color: #48bb78;
+                    color: white;
+                    font-size: 11px;
+                    font-weight: bold;
+                    padding: 3px 8px;
+                    border-radius: 12px;
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                    pointer-events: none;
+                }
+                .empty-cell {
+                    background-color: transparent;
+                    border: 1px dashed #cbd5e0;
+                    color: #a0aec0;
+                    text-align: center;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: default;
+                }
+                .empty-cell:hover { transform: none; box-shadow: none; border-color: #cbd5e0; }
+            </style>
+        </head>
+        <body>
+            <div class="grid-container">
+                <!-- ヘッダー -->
+                <div class="header-card">level⑥</div>
+                <div class="header-card">level⑤</div>
+                <div class="header-card">level④</div>
+                <div class="header-card">level③</div>
+                <div class="header-card">level②</div>
+                <div class="header-card">level①</div>
+        """
+        
+        # データ行を生成
+        for row in api_manual_data:
+            for key in ["level6", "level5", "level4", "level3", "level2", "level1"]:
+                val = row.get(key, "").strip()
+                if val:
+                    # HTMLタグ（<>など）を安全な文字に変換して表示
+                    display_val = html_lib.escape(val)
+                    html_content += f"""
+                    <div class="cell-card" onclick="copyToClipboard(this)">
+                        <div class="text-content">{display_val}</div>
+                        <span class="copied-badge">Copied!</span>
+                    </div>
+                    """
+                else:
+                    html_content += f'<div class="cell-card empty-cell">-</div>'
+                    
+        html_content += """
+            </div>
+            
+            <script>
+            function copyToClipboard(element) {
+                // セル内のテキストを取得（innerTextを使うことで改行もそのまま維持されます）
+                const text = element.querySelector('.text-content').innerText;
+                
+                // コピー処理のフォールバック（全ブラウザ対応）
+                const fallbackCopy = (str) => {
+                    const textArea = document.createElement("textarea");
+                    textArea.value = str;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try { document.execCommand('copy'); } catch (err) {}
+                    document.body.removeChild(textArea);
+                };
+                
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+                } else {
+                    fallbackCopy(text);
+                }
+                
+                // 「Copied!」のアニメーション表示
+                const badge = element.querySelector('.copied-badge');
+                if (badge) {
+                    badge.style.opacity = '1';
+                    setTimeout(() => {
+                        badge.style.opacity = '0';
+                    }, 1500);
+                }
+            }
+            </script>
+        </body>
+        </html>
+        """
+        
+        # 作成したHTML/JSを、高さ800pxのスクロール可能なパーツとして一括で埋め込む
+        components.html(html_content, height=800, scrolling=True)
