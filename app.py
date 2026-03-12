@@ -40,7 +40,10 @@ def get_user_work_data(username):
                         "current_status": user_data.get("current_status", "出社"),
                         "other_work_logs": user_data.get("other_work_logs", []),
                         "other_work_total_min": user_data.get("other_work_total_min", 0),
-                        "other_work_start_time": start_time
+                        "other_work_start_time": start_time,
+                        "cancel_logs": user_data.get("cancel_logs", []),
+                        "cancel_total_min": user_data.get("cancel_total_min", 0),
+                        "cancel_count": user_data.get("cancel_count", 0)
                     }
         except Exception:
             pass
@@ -48,10 +51,13 @@ def get_user_work_data(username):
         "current_status": "出社",
         "other_work_logs": [],
         "other_work_total_min": 0,
-        "other_work_start_time": None
+        "other_work_start_time": None,
+        "cancel_logs": [],
+        "cancel_total_min": 0,
+        "cancel_count": 0
     }
 
-def save_user_work_data(username, status, logs, total_min, start_time):
+def save_user_work_data(username, status, logs, total_min, start_time, cancel_logs=None, cancel_total_min=None, cancel_count=None):
     data = {}
     if os.path.exists(WORK_LOG_FILE):
         try:
@@ -62,11 +68,19 @@ def save_user_work_data(username, status, logs, total_min, start_time):
     
     st_time_str = start_time.isoformat() if start_time else None
     
+    user_data = data.get(username, {})
+    c_logs = cancel_logs if cancel_logs is not None else user_data.get("cancel_logs", [])
+    c_total_min = cancel_total_min if cancel_total_min is not None else user_data.get("cancel_total_min", 0)
+    c_count = cancel_count if cancel_count is not None else user_data.get("cancel_count", 0)
+    
     data[username] = {
         "current_status": status,
         "other_work_logs": logs,
         "other_work_total_min": total_min,
-        "other_work_start_time": st_time_str
+        "other_work_start_time": st_time_str,
+        "cancel_logs": c_logs,
+        "cancel_total_min": c_total_min,
+        "cancel_count": c_count
     }
     
     try:
@@ -502,6 +516,66 @@ if current_tab == "👤 ユーザー":
         </div>
         """, unsafe_allow_html=True)
 
+        # ▼▼▼ 追加: 代筆中キャンセル入力カード ▼▼▼
+        cancel_logs = user_data["cancel_logs"]
+        cancel_total_min = user_data["cancel_total_min"]
+        cancel_count = user_data["cancel_count"]
+        c_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in cancel_logs[-3:]])
+        
+        with st.container(border=True):
+            st.markdown(f"""
+            <div style="border-left: 4px solid #ed8936; padding-left: 12px; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="width: 50%;">
+                        <div style="color:#dd6b20; font-weight: bold; margin-bottom: 5px;">🚫 代筆中キャンセル</div>
+                        <div>
+                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_count}</span> <span style="font-size:0.8em; color: #4a5568;">件</span>
+                            <span style="margin: 0 8px; color: #cbd5e0;">|</span>
+                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_total_min}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
+                        </div>
+                    </div>
+                    <div style="width: 50%; text-align: right;">
+                        <strong style="color: #4a5568; font-size: 0.8em;">追加履歴:</strong>
+                        <ul style="margin: 0; padding-left: 0; list-style-type: none; font-size: 0.8em; color: #718096;">
+                            {c_logs_html if c_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c_col1, c_col2, c_col3 = st.columns([1.5, 2, 1])
+            with c_col1:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>分数</div>", unsafe_allow_html=True)
+                input_c_min = st.number_input("分数", min_value=1, max_value=180, value=10, key="input_c_min", label_visibility="collapsed")
+            with c_col2:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>メモ(任意)</div>", unsafe_allow_html=True)
+                input_c_memo = st.text_input("メモ", placeholder="案件IDなど", key="input_c_memo", label_visibility="collapsed")
+            with c_col3:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                if st.button("追加", key="add_cancel_btn", use_container_width=True):
+                    now_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime('%H:%M')
+                    memo_str = f" ({input_c_memo})" if input_c_memo else ""
+                    new_log = f"{now_time} - {input_c_min}分{memo_str}"
+                    
+                    new_logs = cancel_logs.copy()
+                    new_logs.append(new_log)
+                    new_count = cancel_count + 1
+                    new_total_min = cancel_total_min + input_c_min
+                    
+                    save_user_work_data(
+                        st.session_state.selected_user, 
+                        current_status, 
+                        other_work_logs, 
+                        other_work_total_min, 
+                        other_work_start_time,
+                        cancel_logs=new_logs,
+                        cancel_total_min=new_total_min,
+                        cancel_count=new_count
+                    )
+                    st.rerun()
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
         
