@@ -5,8 +5,8 @@ from datetime import datetime
 import time
 import json
 import os
-import streamlit.components.v1 as components # 追加: HTMLカードグリッド埋め込み用
-import html as html_lib # 追加: セキュリティエスケープ用
+import streamlit.components.v1 as components 
+import html as html_lib 
 
 # ▼▼▼ 追加: 自動更新用のライブラリをインポート試行 ▼▼▼
 try:
@@ -36,6 +36,10 @@ def get_user_work_data(username):
                 if user_data:
                     st_time_str = user_data.get("other_work_start_time")
                     start_time = pd.to_datetime(st_time_str) if st_time_str else None
+                    
+                    b_time_str = user_data.get("break_start_time")
+                    b_start_time = pd.to_datetime(b_time_str) if b_time_str else None
+                    
                     return {
                         "current_status": user_data.get("current_status", "出社"),
                         "other_work_logs": user_data.get("other_work_logs", []),
@@ -43,7 +47,10 @@ def get_user_work_data(username):
                         "other_work_start_time": start_time,
                         "cancel_logs": user_data.get("cancel_logs", []),
                         "cancel_total_min": user_data.get("cancel_total_min", 0),
-                        "cancel_count": user_data.get("cancel_count", 0)
+                        "cancel_count": user_data.get("cancel_count", 0),
+                        "break_logs": user_data.get("break_logs", []),
+                        "break_total_min": user_data.get("break_total_min", 0),
+                        "break_start_time": b_start_time
                     }
         except Exception:
             pass
@@ -54,10 +61,13 @@ def get_user_work_data(username):
         "other_work_start_time": None,
         "cancel_logs": [],
         "cancel_total_min": 0,
-        "cancel_count": 0
+        "cancel_count": 0,
+        "break_logs": [],
+        "break_total_min": 0,
+        "break_start_time": None
     }
 
-def save_user_work_data(username, status, logs, total_min, start_time, cancel_logs=None, cancel_total_min=None, cancel_count=None):
+def save_user_work_data(username, status, logs, total_min, start_time, **kwargs):
     data = {}
     if os.path.exists(WORK_LOG_FILE):
         try:
@@ -67,11 +77,20 @@ def save_user_work_data(username, status, logs, total_min, start_time, cancel_lo
             pass
     
     st_time_str = start_time.isoformat() if start_time else None
-    
     user_data = data.get(username, {})
-    c_logs = cancel_logs if cancel_logs is not None else user_data.get("cancel_logs", [])
-    c_total_min = cancel_total_min if cancel_total_min is not None else user_data.get("cancel_total_min", 0)
-    c_count = cancel_count if cancel_count is not None else user_data.get("cancel_count", 0)
+    
+    c_logs = kwargs.get("cancel_logs", user_data.get("cancel_logs", []))
+    c_total_min = kwargs.get("cancel_total_min", user_data.get("cancel_total_min", 0))
+    c_count = kwargs.get("cancel_count", user_data.get("cancel_count", 0))
+    
+    b_logs = kwargs.get("break_logs", user_data.get("break_logs", []))
+    b_total_min = kwargs.get("break_total_min", user_data.get("break_total_min", 0))
+    
+    if "break_start_time" in kwargs:
+        b_time_val = kwargs["break_start_time"]
+        b_time_str = b_time_val.isoformat() if b_time_val else None
+    else:
+        b_time_str = user_data.get("break_start_time")
     
     data[username] = {
         "current_status": status,
@@ -80,7 +99,10 @@ def save_user_work_data(username, status, logs, total_min, start_time, cancel_lo
         "other_work_start_time": st_time_str,
         "cancel_logs": c_logs,
         "cancel_total_min": c_total_min,
-        "cancel_count": c_count
+        "cancel_count": c_count,
+        "break_logs": b_logs,
+        "break_total_min": b_total_min,
+        "break_start_time": b_time_str
     }
     
     try:
@@ -186,17 +208,16 @@ st.markdown("""
         padding-bottom: 2rem; 
     }
     
-    /* ▼▼▼ 追加: コードブロック(コピー枠)内の長文を折り返すCSS ▼▼▼ */
+    /* コードブロック(コピー枠)内の長文を折り返すCSS */
     div[data-testid="stCodeBlock"] {
         margin-bottom: 0.5rem !important;
     }
     div[data-testid="stCodeBlock"] pre {
         padding: 0.6rem !important;
         font-size: 0.9em !important;
-        white-space: pre-wrap !important; /* 長文を折り返す */
-        word-break: break-word !important; /* 枠からはみ出さないようにする */
+        white-space: pre-wrap !important; 
+        word-break: break-word !important; 
     }
-    /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
     
     .stNumberInput input { padding: 4px; font-size: 0.9em; }
 </style>
@@ -435,6 +456,11 @@ if current_tab == "👤 ユーザー":
         other_work_total_min = user_data["other_work_total_min"]
         other_work_start_time = user_data["other_work_start_time"]
         
+        # ▼▼▼ 休憩ログ用のデータを取得 ▼▼▼
+        break_logs = user_data["break_logs"]
+        break_total_min = user_data["break_total_min"]
+        break_start_time = user_data["break_start_time"]
+        
         st.markdown(f"""
         <div class="custom-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -447,12 +473,32 @@ if current_tab == "👤 ユーザー":
         with btn_c1:
             if current_status == "休憩中":
                 if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
+                    now = pd.Timestamp.now(tz='Asia/Tokyo')
+                    break_logs.append(f"終了: {now.strftime('%H:%M')}")
+                    
+                    if break_start_time:
+                        diff = now - break_start_time
+                        minutes = int(diff.total_seconds() / 60)
+                        break_total_min += minutes
+                        break_start_time = None
+                        
+                    save_user_work_data(
+                        st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
+                        break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
+                    )
                     st.rerun()
             else:
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
-                    save_user_work_data(st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time)
+                    now = pd.Timestamp.now(tz='Asia/Tokyo')
+                    break_start_time = now
+                    break_logs.append(f"開始: {now.strftime('%H:%M')}")
+                    
+                    save_user_work_data(
+                        st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
+                        break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
+                    )
                     st.rerun()
+                    
         with btn_c2:
             if current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
@@ -475,22 +521,34 @@ if current_tab == "👤 ユーザー":
                     save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
                     st.rerun()
                     
-        logs_html = "".join([f"<li>{log}</li>" for log in other_work_logs[-3:]])
+        # ▼▼▼ 修正: 休憩ログと別業務ログを左右に分割して表示 ▼▼▼
+        b_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in break_logs[-3:]])
+        o_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in other_work_logs[-3:]])
+        
         st.markdown(f"""
-            <div style="margin-top: 10px; font-size: 0.9em; display: flex; justify-content: space-between; align-items: flex-end;">
-                <div style="width: 60%;">
-                    <strong style="color: #4a5568;">別業務ログ:</strong>
-                    <ul class="log-list" style="margin: 0; padding-left: 20px;">
-                        {logs_html if logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
+            <div style="margin-top: 15px; font-size: 0.85em; display: flex; gap: 15px;">
+                <div style="flex: 1; border-right: 1px dashed #e2e8f0; padding-right: 10px;">
+                    <div style="color: #4a5568; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: flex-end;">
+                        <strong>☕ 休憩ログ</strong>
+                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{break_total_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
+                    </div>
+                    <ul class="log-list" style="margin: 0; padding-left: 20px; color: #718096;">
+                        {b_logs_html if b_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
                     </ul>
                 </div>
-                <div style="width: 35%; text-align: right; color: #4a5568;">
-                    <strong>別業務合計:</strong><br>
-                    <span style="font-size: 1.4em; font-weight: bold; color: #2d3748;">{other_work_total_min}</span> 分
+                <div style="flex: 1; padding-left: 5px;">
+                    <div style="color: #4a5568; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: flex-end;">
+                        <strong>🔄 別業務ログ</strong>
+                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{other_work_total_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
+                    </div>
+                    <ul class="log-list" style="margin: 0; padding-left: 20px; color: #718096;">
+                        {o_logs_html if o_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
+                    </ul>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     with col_right:
         st.markdown(f"""
@@ -616,7 +674,6 @@ if current_tab == "👤 ユーザー":
                 for _, t in other_target_tasks.iterrows():
                     t_date = t['datetime'].strftime('%m/%d')
                     t_time = t['datetime'].strftime('%H:%M')
-                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
                     disp_id = str(t['anken_id']).replace('_fukkatsu', '')
                     task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_date} {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
                 task_list_html += "</div>"
@@ -655,7 +712,6 @@ if current_tab == "👤 ユーザー":
             col_id, col_phone = st.columns(2)
             with col_id:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
                 disp_id = str(task['anken_id']).replace('_fukkatsu', '')
                 st.code(disp_id, language="text")
                 
@@ -671,7 +727,6 @@ if current_tab == "👤 ユーザー":
             
             act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
             with act_col1:
-                # ※ボタンのキーやGASへ送るIDには元の `task['anken_id']` を使います
                 if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", use_container_width=True):
                     update_status(task['anken_id'], "完了", fukkatsu_input)
             with act_col2:
@@ -715,7 +770,6 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
                     disp_id = str(task['anken_id']).replace('_fukkatsu', '')
                     st.code(disp_id, language="text")
                 with col_phone:
@@ -764,7 +818,6 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
                     disp_id = str(task['anken_id']).replace('_fukkatsu', '')
                     st.code(disp_id, language="text")
                 with col_phone:
@@ -821,7 +874,6 @@ if current_tab == "👤 ユーザー":
                     col_id, col_phone = st.columns(2)
                     with col_id:
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                        # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
                         disp_id = str(task['anken_id']).replace('_fukkatsu', '')
                         st.code(disp_id, language="text")
                     with col_phone:
@@ -874,7 +926,6 @@ elif current_tab == "⚙️ 管理者":
                 
                 display_df = filtered_df[['datetime', 'anken_id']].copy()
                 display_df['datetime'] = display_df['datetime'].dt.strftime('%m/%d %H:%M')
-                # ▼▼▼ 修正: 管理者画面の表からも _fukkatsu を非表示に ▼▼▼
                 display_df['anken_id'] = display_df['anken_id'].astype(str).str.replace('_fukkatsu', '')
                 display_df.columns = ['日時', '案件ID']
                 
@@ -979,7 +1030,6 @@ elif current_tab == "⚙️ 管理者":
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
-                # ▼ メンバー稼働ステータスの対応IDからも _fukkatsu を非表示に
                 disp_id = str(row['anken_id']).replace('_fukkatsu', '')
                 active_dict[row['assigned']] = disp_id
                 
@@ -1013,6 +1063,7 @@ elif current_tab == "⚙️ 管理者":
                 
                 user_work_data = get_user_work_data(user)
                 other_work_min = user_work_data["other_work_total_min"]
+                break_min = user_work_data["break_total_min"] # ▼ 修正: 管理者側でも休憩時間を取得
                 user_status = user_work_data["current_status"]
                 
                 current_action = active_dict.get(user)
@@ -1030,6 +1081,7 @@ elif current_tab == "⚙️ 管理者":
                     "完了分数": int(comp_min),
                     "復活音源件数": fukkatsu_count,
                     "別業務時間": other_work_min,
+                    "休憩時間": break_min, # ▼ 修正: ステータス表に休憩時間を追加
                     "現在の作業": display_action
                 })
                 
@@ -1049,6 +1101,7 @@ elif current_tab == "⚙️ 管理者":
                         "完了分数": st.column_config.NumberColumn("完了分数", format="%d 分", width="small"),
                         "復活音源件数": st.column_config.NumberColumn("復活音源", format="%d", width="small"),
                         "別業務時間": st.column_config.NumberColumn("別業務", format="%d 分", width="small"),
+                        "休憩時間": st.column_config.NumberColumn("休憩", format="%d 分", width="small"), # ▼ 修正
                         "現在の作業": st.column_config.Column("現在の作業", width="medium"),
                     }
                 )
@@ -1113,13 +1166,11 @@ elif current_tab == "⚙️ 管理者":
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         
-        # ▼▼▼ 修正: データテーブル全体に「表示用案件ID」列を追加し、画面表示用に _fukkatsu を除去 ▼▼▼
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
         all_display_df['担当者'] = all_display_df['担当者'].fillna('')
         all_display_df['表示用案件ID'] = all_display_df['案件ID'].astype(str).str.replace('_fukkatsu', '')
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         unique_products = all_display_df['商材'].dropna().unique().tolist()
         default_products = [p for p in unique_products if p != "JOBYmini"]
@@ -1168,7 +1219,6 @@ elif current_tab == "⚙️ 管理者":
             if search_query: st.info(f"「{search_query}」に一致する待機中案件はありません。")
             else: st.success("現在待機中の案件はありません。")
         else:
-            # ▼▼▼ 修正: データエディタの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             edited_waiting_df = st.data_editor(
                 waiting_cases_display_df,
                 use_container_width=True,
@@ -1180,11 +1230,10 @@ elif current_tab == "⚙️ 管理者":
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "表示用案件ID": st.column_config.Column("案件ID", width="small"),
-                    "案件ID": None, # 裏側のIDは非表示
+                    "案件ID": None, 
                 },
                 key="admin_waiting_data_editor"
             )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if not edited_waiting_df.equals(waiting_cases_display_df):
                 for idx in waiting_cases_display_df.index:
@@ -1198,7 +1247,6 @@ elif current_tab == "⚙️ 管理者":
         if in_progress_cases_df.empty:
             st.info("現在着手中・中断中の案件はありません。")
         else:
-            # ▼▼▼ 修正: データエディタの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             edited_inprogress_df = st.data_editor(
                 in_progress_cases_df,
                 use_container_width=True,
@@ -1211,11 +1259,10 @@ elif current_tab == "⚙️ 管理者":
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "開始時間": st.column_config.Column("開始時間", width="small"),
                     "表示用案件ID": st.column_config.Column("案件ID", width="small"),
-                    "案件ID": None, # 裏側のIDは非表示
+                    "案件ID": None, 
                 },
                 key="admin_inprogress_data_editor"
             )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if not edited_inprogress_df.equals(in_progress_cases_df):
                 for idx in in_progress_cases_df.index:
@@ -1229,7 +1276,6 @@ elif current_tab == "⚙️ 管理者":
         if completed_cases_df.empty:
             st.info("完了済みの案件はまだありません。")
         else:
-            # ▼▼▼ 修正: DataFrameの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             st.dataframe(
                 completed_cases_df,
                 use_container_width=True,
@@ -1240,10 +1286,9 @@ elif current_tab == "⚙️ 管理者":
                     "担当者": st.column_config.Column("担当者", width="small"),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "表示用案件ID": st.column_config.Column("案件ID", width="small"),
-                    "案件ID": None, # 裏側のIDは非表示
+                    "案件ID": None, 
                 }
             )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: solid 2px #e53e3e;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
