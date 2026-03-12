@@ -572,9 +572,50 @@ if current_tab == "👤 ユーザー":
                     update_status(task['anken_id'], "中断")
             with act_col3:
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
+                    # ※手動で「未対応」に変更された処理を維持
                     update_status(task['anken_id'], "未対応")
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
+
+    # ▼▼▼ 追加: 中断中のタスクリスト ▼▼▼
+    paused_tasks = my_tasks[my_tasks['status'] == '中断'].sort_values('datetime') if not my_tasks.empty else pd.DataFrame()
+    
+    if not paused_tasks.empty:
+        st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #dd6b20; font-weight: bold;'>⏸️ 中断中のタスク</div>", unsafe_allow_html=True)
+        
+        for idx, task in paused_tasks.iterrows():
+            task_date = task['datetime'].strftime('%m/%d')
+            start_t = task['datetime'].strftime('%H:%M')
+            duration_m = int(task['duration'])
+            f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
+            
+            with st.container(border=True):
+                st.markdown(f"""
+                <div style="border-left: 4px solid #ed8936; padding-left: 12px; margin-bottom: 8px;">
+                    <div style="font-weight: bold; color: #2d3748; margin-bottom: 2px;">
+                        <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']}) <span style="color: #cbd5e0; margin: 0 10px;">|</span> <span style="color: #4a5568;">{task['anken_id']}</span>
+                    </div>
+                    <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        📝 {task['title']}
+                    </div>
+                    <div style="color: #718096; font-size: 0.85em;">
+                        🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; <span style="color: #dd6b20; font-weight: bold;">⏸️ 中断中</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
+                if phone_str:
+                    phone_str = phone_str.replace(",", "\u00A0")
+                    st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号 (右のアイコンでコピー)</div>", unsafe_allow_html=True)
+                    st.code(phone_str, language="text")
+                
+                b_col1, b_col2 = st.columns([4, 1])
+                with b_col2:
+                    is_disabled = not active_tasks.empty
+                    if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
+                        update_status(task['anken_id'], "着手")
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 下段: 待機中のタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
@@ -1075,5 +1116,3 @@ elif current_tab == "⚙️ 管理者":
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
-
-
