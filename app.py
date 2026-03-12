@@ -516,7 +516,6 @@ if current_tab == "👤 ユーザー":
         </div>
         """, unsafe_allow_html=True)
 
-        # ▼▼▼ 追加: 代筆中キャンセル入力カード ▼▼▼
         cancel_logs = user_data["cancel_logs"]
         cancel_total_min = user_data["cancel_total_min"]
         cancel_count = user_data["cancel_count"]
@@ -575,7 +574,6 @@ if current_tab == "👤 ユーザー":
                     )
                     st.rerun()
 
-            # ▼▼▼ 追加: 代筆中キャンセル登録フォームへのリンク ▼▼▼
             st.markdown("""
             <div style='margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; text-align: right;'>
                 <a href='https://231707ee.form.kintoneapp.com/public/surrender' target='_blank' rel='noopener noreferrer' style='color: #2b6cb0; text-decoration: none; font-size: 0.85em; font-weight: bold;'>
@@ -583,8 +581,6 @@ if current_tab == "👤 ユーザー":
                 </a>
             </div>
             """, unsafe_allow_html=True)
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
@@ -609,7 +605,7 @@ if current_tab == "👤 ユーザー":
                 other_target_tasks = df[
                     (df['datetime'].dt.date > today_date) & 
                     (df['datetime'].dt.date <= target_end_date) & 
-                    (df['status'] == '未対応') &  # ▼ 修正: 「未対応」の案件のみを抽出するように変更
+                    (df['status'] == '未対応') &  
                     (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                     (df['product'] != 'JOBYmini')
                 ].sort_values('datetime')
@@ -620,7 +616,9 @@ if current_tab == "👤 ユーザー":
                 for _, t in other_target_tasks.iterrows():
                     t_date = t['datetime'].strftime('%m/%d')
                     t_time = t['datetime'].strftime('%H:%M')
-                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_date} {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {t['anken_id']}</div>"
+                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
+                    disp_id = str(t['anken_id']).replace('_fukkatsu', '')
+                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_date} {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
                 task_list_html += "</div>"
                 st.markdown(task_list_html, unsafe_allow_html=True)
             else:
@@ -657,7 +655,9 @@ if current_tab == "👤 ユーザー":
             col_id, col_phone = st.columns(2)
             with col_id:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                st.code(task['anken_id'], language="text")
+                # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
+                disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                st.code(disp_id, language="text")
                 
             with col_phone:
                 if phone_str:
@@ -671,6 +671,7 @@ if current_tab == "👤 ユーザー":
             
             act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
             with act_col1:
+                # ※ボタンのキーやGASへ送るIDには元の `task['anken_id']` を使います
                 if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", use_container_width=True):
                     update_status(task['anken_id'], "完了", fukkatsu_input)
             with act_col2:
@@ -714,7 +715,9 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    st.code(task['anken_id'], language="text")
+                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
+                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    st.code(disp_id, language="text")
                 with col_phone:
                     if phone_str:
                         phone_str = phone_str.replace(",", " ")
@@ -761,7 +764,9 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    st.code(task['anken_id'], language="text")
+                    # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
+                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    st.code(disp_id, language="text")
                 with col_phone:
                     if phone_str:
                         phone_str = phone_str.replace(",", " ")
@@ -816,7 +821,9 @@ if current_tab == "👤 ユーザー":
                     col_id, col_phone = st.columns(2)
                     with col_id:
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                        st.code(task['anken_id'], language="text")
+                        # ▼▼▼ 修正: 表示用の案件IDから _fukkatsu を非表示に ▼▼▼
+                        disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                        st.code(disp_id, language="text")
                     with col_phone:
                         if phone_str:
                             phone_str = phone_str.replace(",", " ")
@@ -857,9 +864,7 @@ elif current_tab == "⚙️ 管理者":
             target_datetime = datetime.combine(target_date, target_time)
             target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
             
-            # ▼▼▼ 修正: 「完了」や「取り消し」のタスクを除外し、リアルタイムに有効なものだけにする ▼▼▼
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
@@ -869,6 +874,8 @@ elif current_tab == "⚙️ 管理者":
                 
                 display_df = filtered_df[['datetime', 'anken_id']].copy()
                 display_df['datetime'] = display_df['datetime'].dt.strftime('%m/%d %H:%M')
+                # ▼▼▼ 修正: 管理者画面の表からも _fukkatsu を非表示に ▼▼▼
+                display_df['anken_id'] = display_df['anken_id'].astype(str).str.replace('_fukkatsu', '')
                 display_df.columns = ['日時', '案件ID']
                 
                 st.dataframe(
@@ -972,7 +979,9 @@ elif current_tab == "⚙️ 管理者":
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
-                active_dict[row['assigned']] = str(row['anken_id'])
+                # ▼ メンバー稼働ステータスの対応IDからも _fukkatsu を非表示に
+                disp_id = str(row['anken_id']).replace('_fukkatsu', '')
+                active_dict[row['assigned']] = disp_id
                 
             summary_data = []
             
@@ -1104,10 +1113,13 @@ elif current_tab == "⚙️ 管理者":
 
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         
+        # ▼▼▼ 修正: データテーブル全体に「表示用案件ID」列を追加し、画面表示用に _fukkatsu を除去 ▼▼▼
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
         all_display_df['担当者'] = all_display_df['担当者'].fillna('')
+        all_display_df['表示用案件ID'] = all_display_df['案件ID'].astype(str).str.replace('_fukkatsu', '')
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         unique_products = all_display_df['商材'].dropna().unique().tolist()
         default_products = [p for p in unique_products if p != "JOBYmini"]
@@ -1131,7 +1143,7 @@ elif current_tab == "⚙️ 管理者":
         task_times = get_task_times()
         in_progress_cases_df['開始時間'] = in_progress_cases_df['案件ID'].astype(str).map(task_times).fillna('')
         
-        in_progress_cols = ['担当者', 'ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
+        in_progress_cols = ['担当者', 'ステータス', '開始時間', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法']
         in_progress_cases_df = in_progress_cases_df[in_progress_cols]
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
@@ -1156,18 +1168,23 @@ elif current_tab == "⚙️ 管理者":
             if search_query: st.info(f"「{search_query}」に一致する待機中案件はありません。")
             else: st.success("現在待機中の案件はありません。")
         else:
+            # ▼▼▼ 修正: データエディタの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             edited_waiting_df = st.data_editor(
                 waiting_cases_display_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
+                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                    "案件ID": None, # 裏側のIDは非表示
                 },
                 key="admin_waiting_data_editor"
             )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if not edited_waiting_df.equals(waiting_cases_display_df):
                 for idx in waiting_cases_display_df.index:
@@ -1181,19 +1198,24 @@ elif current_tab == "⚙️ 管理者":
         if in_progress_cases_df.empty:
             st.info("現在着手中・中断中の案件はありません。")
         else:
+            # ▼▼▼ 修正: データエディタの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             edited_inprogress_df = st.data_editor(
                 in_progress_cases_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '開始時間', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                disabled=['ステータス', '開始時間', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                column_order=['担当者', 'ステータス', '開始時間', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "開始時間": st.column_config.Column("開始時間", width="small"),
+                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                    "案件ID": None, # 裏側のIDは非表示
                 },
                 key="admin_inprogress_data_editor"
             )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if not edited_inprogress_df.equals(in_progress_cases_df):
                 for idx in in_progress_cases_df.index:
@@ -1207,16 +1229,21 @@ elif current_tab == "⚙️ 管理者":
         if completed_cases_df.empty:
             st.info("完了済みの案件はまだありません。")
         else:
+            # ▼▼▼ 修正: DataFrameの column_order と column_config で元のIDを隠し、表示用IDを見せる ▼▼▼
             st.dataframe(
                 completed_cases_df,
                 use_container_width=True,
                 hide_index=True,
+                column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.Column("担当者", width="small"),
-                    "ステータス": st.column_config.Column("ステータス", width="small")
+                    "ステータス": st.column_config.Column("ステータス", width="small"),
+                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                    "案件ID": None, # 裏側のIDは非表示
                 }
             )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: solid 2px #e53e3e;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
@@ -1239,7 +1266,6 @@ elif current_tab == "📖 監査マニュアル":
     else:
         st.info("💡 **一括コピー機能:** 以下のカードの**どこでもクリックするだけ**で、中身のテキストがクリップボードに一発でコピーされます！")
         
-        # ▼▼▼ HTMLとJSを組み合わせた「爆速・1クリックコピーツール」を構築 ▼▼▼
         html_content = """
         <!DOCTYPE html>
         <html>
@@ -1290,7 +1316,7 @@ elif current_tab == "📖 監査マニュアル":
                     white-space: pre-wrap;
                     word-break: break-word;
                     margin-bottom: 10px;
-                    pointer-events: none; /* クリック判定を親要素に逃がす */
+                    pointer-events: none; 
                 }
                 .copied-badge {
                     position: absolute;
@@ -1321,7 +1347,6 @@ elif current_tab == "📖 監査マニュアル":
         </head>
         <body>
             <div class="grid-container">
-                <!-- ヘッダー -->
                 <div class="header-card">level⑥</div>
                 <div class="header-card">level⑤</div>
                 <div class="header-card">level④</div>
@@ -1330,12 +1355,10 @@ elif current_tab == "📖 監査マニュアル":
                 <div class="header-card">level①</div>
         """
         
-        # データ行を生成
         for row in api_manual_data:
             for key in ["level6", "level5", "level4", "level3", "level2", "level1"]:
                 val = row.get(key, "").strip()
                 if val:
-                    # HTMLタグ（<>など）を安全な文字に変換して表示
                     display_val = html_lib.escape(val)
                     html_content += f"""
                     <div class="cell-card" onclick="copyToClipboard(this)">
@@ -1351,10 +1374,8 @@ elif current_tab == "📖 監査マニュアル":
             
             <script>
             function copyToClipboard(element) {
-                // セル内のテキストを取得（innerTextを使うことで改行もそのまま維持されます）
                 const text = element.querySelector('.text-content').innerText;
                 
-                // コピー処理のフォールバック（全ブラウザ対応）
                 const fallbackCopy = (str) => {
                     const textArea = document.createElement("textarea");
                     textArea.value = str;
@@ -1370,7 +1391,6 @@ elif current_tab == "📖 監査マニュアル":
                     fallbackCopy(text);
                 }
                 
-                // 「Copied!」のアニメーション表示
                 const badge = element.querySelector('.copied-badge');
                 if (badge) {
                     badge.style.opacity = '1';
@@ -1384,5 +1404,4 @@ elif current_tab == "📖 監査マニュアル":
         </html>
         """
         
-        # 作成したHTML/JSを、高さ800pxのスクロール可能なパーツとして一括で埋め込む
         components.html(html_content, height=800, scrolling=True)
