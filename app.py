@@ -100,6 +100,27 @@ def save_system_settings(key, value):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+# ▼▼▼ 追加: タスクの着手時間を保存するためのJSONファイル操作関数 ▼▼▼
+TASK_TIME_FILE = "task_times.json"
+
+def get_task_times():
+    if os.path.exists(TASK_TIME_FILE):
+        try:
+            with open(TASK_TIME_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_task_time(anken_id, time_str):
+    data = get_task_times()
+    data[anken_id] = time_str
+    try:
+        with open(TASK_TIME_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
@@ -198,6 +219,12 @@ def fetch_data():
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
     with st.spinner('ステータスを更新中...'):
+        # ▼▼▼ 追加: 着手ボタンを押した時刻を記録 ▼▼▼
+        if new_status == "着手":
+            now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
+            save_task_time(anken_id, now_str)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         payload = {
             "action": "update_status",
             "anken_id": anken_id,
@@ -847,6 +874,10 @@ elif current_tab == "⚙️ 管理者":
             # --- セクション2 (右): メンバー稼働ステータス ---
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
             
+            # ▼▼▼ 追加: 保存されている着手時間を取得 ▼▼▼
+            task_times = get_task_times()
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
@@ -890,7 +921,13 @@ elif current_tab == "⚙️ 管理者":
                 
                 current_action = active_dict.get(user)
                 if current_action:
-                    display_action = f"対応: {current_action}"
+                    # ▼▼▼ 修正: 着手時間も一緒に表示する ▼▼▼
+                    started_time = task_times.get(current_action, "")
+                    if started_time:
+                        display_action = f"対応: {current_action} (開始 {started_time})"
+                    else:
+                        display_action = f"対応: {current_action}"
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 elif user_status != "出社":
                     display_action = f"[{user_status}]"
                 else:
