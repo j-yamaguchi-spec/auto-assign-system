@@ -354,6 +354,21 @@ def reset_system():
         except Exception as e:
             st.error(f"リセットに失敗しました: {e}")
 
+# ▼▼▼ 新規追加: 全メンバーの残業時間を一括更新するAPI連携 ▼▼▼
+def update_all_overtime(minutes):
+    with st.spinner(f'全メンバーの残業時間を {minutes} 分に設定し、再計算中...'):
+        payload = {
+            "action": "update_all_overtime",
+            "minutes": minutes
+        }
+        try:
+            safe_api_post(payload)
+            fetch_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"更新に失敗しました: {e}")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 def update_user_status_api(name, status):
     with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
         payload = {
@@ -1034,24 +1049,7 @@ elif current_tab == "⚙️ 管理者":
                         task_counts[d][cat] += 1
             else:
                 task_counts = {}
-
-            now = pd.Timestamp.now(tz='Asia/Tokyo')
-            today_date = now.date()
-            youbi_list = ['月', '火', '水', '木', '金', '土', '日']
-            
-            upcoming_data = []
-            for i in range(7):
-                target_d = today_date + pd.Timedelta(days=i)
-                counts = task_counts.get(target_d, {'他営AM': 0, '他営PM': 0, '自営': 0})
-                
-                am_c = counts['他営AM']
-                pm_c = counts['他営PM']
-                jiei_c = counts['自営']
-                total_c = am_c + pm_c + jiei_c
-                
-                date_str = f"{target_d.month}/{target_d.day}（{youbi_list[target_d.weekday()]}）"
-                
-                upcoming_data.append({
+                upcoming_df.append({
                     "日付（曜日）": date_str,
                     "他営AM": am_c,
                     "他営PM": pm_c,
@@ -1073,6 +1071,23 @@ elif current_tab == "⚙️ 管理者":
                     "合計": st.column_config.NumberColumn("合計", format="%d 件", width="small")
                 }
             )
+
+            # ▼▼▼ 新規追加: 全メンバー一括 残業設定のUI ▼▼▼
+            st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
+            st.markdown("<h5 style='color: #4a5568;'>⏰ 全メンバー一括 残業設定</h5>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 0.85em; color: #718096; margin-bottom: 10px;'>※この設定は「早番」の退勤リミット（17:00）を延長し、夕方以降のタスクも割り当てられるようにします。</p>", unsafe_allow_html=True)
+            
+            current_ot = 0
+            if api_members_data and len(api_members_data) > 0:
+                current_ot = int(api_members_data[0].get("overtime", 0))
+                
+            col_ot1, col_ot2 = st.columns([2, 1], vertical_alignment="bottom")
+            with col_ot1:
+                new_overtime = st.number_input("残業時間 (分)", min_value=0, max_value=300, step=30, value=current_ot)
+            with col_ot2:
+                if st.button("💾 適用して再計算", type="primary", use_container_width=True, key="btn_update_ot"):
+                    update_all_overtime(new_overtime)
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         with col_admin_r:
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
