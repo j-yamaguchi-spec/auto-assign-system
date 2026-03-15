@@ -241,14 +241,16 @@ def fetch_data():
                 members = data.get("members", [])
                 api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
                 members_data = data.get("membersData", [])
-                
                 api_manual_data = data.get("manualData", [])
                 
-                return df, members, api_settings, members_data, api_manual_data, fetch_time
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], fetch_time
+                # ▼▼▼ ファストパスのIDリストを受け取る ▼▼▼
+                api_fastpass_ids = data.get("fastpassIds", [])
+                
+                return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], fetch_time
     except Exception as e:
         st.error(f"通信エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
     with st.spinner('ステータスを更新中...'):
@@ -351,7 +353,14 @@ def handle_refresh():
     fetch_data.clear()
 
 header_container = st.container()
-df, api_members, api_settings, api_members_data, api_manual_data, fetch_time = fetch_data()
+df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, fetch_time = fetch_data()
+
+# 全体の中で一番古い「未対応」タスクの日付を取得 (ファストパスの条件判定用)
+min_unassigned_date = None
+if not df.empty:
+    unassigned_df = df[df['status'] == '未対応']
+    if not unassigned_df.empty:
+        min_unassigned_date = unassigned_df['datetime'].dt.date.min()
 
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
@@ -471,7 +480,6 @@ if current_tab == "👤 ユーザー":
         other_work_total_min = user_data["other_work_total_min"]
         other_work_start_time = user_data["other_work_start_time"]
         
-        # ▼▼▼ 休憩ログ用のデータを取得 ▼▼▼
         break_logs = user_data["break_logs"]
         break_total_min = user_data["break_total_min"]
         break_start_time = user_data["break_start_time"]
@@ -501,7 +509,6 @@ if current_tab == "👤 ユーザー":
                         st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
                         break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
                     )
-                    # ▼ 修正: JSON保存と同時にGASにも「出社」を通知して他のタスクを奪い取る
                     update_user_status_api(st.session_state.selected_user, "出社")
                     st.rerun()
             else:
@@ -514,7 +521,6 @@ if current_tab == "👤 ユーザー":
                         st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
                         break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
                     )
-                    # ▼ 修正: JSON保存と同時にGASにも「休憩中」を通知してタスクを手放す
                     update_user_status_api(st.session_state.selected_user, "休憩中")
                     st.rerun()
                     
@@ -531,7 +537,6 @@ if current_tab == "👤 ユーザー":
                         other_work_start_time = None
                         
                     save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
-                    # ▼ 修正: 戻ったことを通知
                     update_user_status_api(st.session_state.selected_user, "出社")
                     st.rerun()
             else:
@@ -540,7 +545,6 @@ if current_tab == "👤 ユーザー":
                     other_work_start_time = now 
                     other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
                     save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
-                    # ▼ 修正: 別業務に入ったことを通知
                     update_user_status_api(st.session_state.selected_user, "別業務中")
                     st.rerun()
                     
@@ -570,7 +574,6 @@ if current_tab == "👤 ユーザー":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     with col_right:
         st.markdown(f"""
@@ -809,22 +812,31 @@ if current_tab == "👤 ユーザー":
     # --- 下段: 待機中のタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
     
-    waiting_tasks = my_tasks[my_tasks['status'] == '未対応'].sort_values('datetime') if not my_tasks.empty else pd.DataFrame()
+    waiting_tasks = my_tasks[my_tasks['status'] == '未対応'].copy() if not my_tasks.empty else pd.DataFrame()
     
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
+        # ▼▼▼ 優先(ファストパス)の判定と並び替え ▼▼▼
+        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
+        waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         for idx, task in waiting_tasks.iterrows():
             task_date = task['datetime'].strftime('%m/%d')
             start_t = task['datetime'].strftime('%H:%M')
             duration_m = int(task['duration'])
             f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
             
+            is_fp = task.get('is_fp', False)
+            border_color = "#e53e3e" if is_fp else "#a0aec0"
+            fp_badge = "<span style='background-color: #e53e3e; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;'>🔥 優先</span>" if is_fp else ""
+            
             with st.container(border=True):
                 st.markdown(f"""
-                <div style="border-left: 4px solid #a0aec0; padding-left: 12px; margin-bottom: 8px;">
+                <div style="border-left: 4px solid {border_color}; padding-left: 12px; margin-bottom: 8px;">
                     <div style="font-weight: bold; color: #2d3748; margin-bottom: 2px;">
-                        <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
+                        {fp_badge}<span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
                     </div>
                     <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                         📝 {task['title']}
@@ -1085,7 +1097,7 @@ elif current_tab == "⚙️ 管理者":
                 
                 user_work_data = get_user_work_data(user)
                 other_work_min = user_work_data["other_work_total_min"]
-                break_min = user_work_data["break_total_min"] # ▼ 修正: 管理者側でも休憩時間を取得
+                break_min = user_work_data["break_total_min"] 
                 user_status = user_work_data["current_status"]
                 
                 current_action = active_dict.get(user)
@@ -1103,7 +1115,7 @@ elif current_tab == "⚙️ 管理者":
                     "完了分数": int(comp_min),
                     "復活音源件数": fukkatsu_count,
                     "別業務時間": other_work_min,
-                    "休憩時間": break_min, # ▼ 修正: ステータス表に休憩時間を追加
+                    "休憩時間": break_min, 
                     "現在の作業": display_action
                 })
                 
@@ -1123,7 +1135,7 @@ elif current_tab == "⚙️ 管理者":
                         "完了分数": st.column_config.NumberColumn("完了分数", format="%d 分", width="small"),
                         "復活音源件数": st.column_config.NumberColumn("復活音源", format="%d", width="small"),
                         "別業務時間": st.column_config.NumberColumn("別業務", format="%d 分", width="small"),
-                        "休憩時間": st.column_config.NumberColumn("休憩", format="%d 分", width="small"), # ▼ 修正
+                        "休憩時間": st.column_config.NumberColumn("休憩", format="%d 分", width="small"), 
                         "現在の作業": st.column_config.Column("現在の作業", width="medium"),
                     }
                 )
@@ -1189,8 +1201,13 @@ elif current_tab == "⚙️ 管理者":
         st.markdown("<hr style='margin: 30px 0;'>", unsafe_allow_html=True)
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
+        
+        # ▼▼▼ 優先(ファストパス)の判定を全体データに適用 ▼▼▼
+        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
-        all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法']
+        all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
         all_display_df['担当者'] = all_display_df['担当者'].fillna('')
         all_display_df['表示用案件ID'] = all_display_df['案件ID'].astype(str).str.replace('_fukkatsu', '')
         
@@ -1237,31 +1254,63 @@ elif current_tab == "⚙️ 管理者":
         else:
             waiting_cases_display_df = waiting_cases_df
         
-        if waiting_cases_display_df.empty:
+        # ▼▼▼ 管理者画面でファストパスと通常のリストを分離 ▼▼▼
+        fp_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == True].reset_index(drop=True)
+        normal_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == False].reset_index(drop=True)
+        
+        if fp_waiting_df.empty and normal_waiting_df.empty:
             if search_query: st.info(f"「{search_query}」に一致する待機中案件はありません。")
             else: st.success("現在待機中の案件はありません。")
         else:
-            edited_waiting_df = st.data_editor(
-                waiting_cases_display_df,
-                use_container_width=True,
-                hide_index=True,
-                disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
-                column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
-                column_config={
-                    "タイトル": st.column_config.Column("タイトル", width="large"),
-                    "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
-                    "ステータス": st.column_config.Column("ステータス", width="small"),
-                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
-                    "案件ID": None, 
-                },
-                key="admin_waiting_data_editor"
-            )
-            
-            if not edited_waiting_df.equals(waiting_cases_display_df):
-                for idx in waiting_cases_display_df.index:
-                    if waiting_cases_display_df.loc[idx, '担当者'] != edited_waiting_df.loc[idx, '担当者']:
-                        update_assign(edited_waiting_df.loc[idx, '案件ID'], edited_waiting_df.loc[idx, '担当者'])
-                        break
+            if not fp_waiting_df.empty:
+                st.markdown("<div style='margin-bottom: 5px; color: #e53e3e; font-weight: bold;'>🔥 優先タスク (ファストパス)</div>", unsafe_allow_html=True)
+                edited_fp_df = st.data_editor(
+                    fp_waiting_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
+                    column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                    column_config={
+                        "タイトル": st.column_config.Column("タイトル", width="large"),
+                        "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
+                        "ステータス": st.column_config.Column("ステータス", width="small"),
+                        "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                        "案件ID": None, 
+                        "is_fp": None,
+                    },
+                    key="admin_fp_waiting_data_editor"
+                )
+                if not edited_fp_df.equals(fp_waiting_df):
+                    for idx in fp_waiting_df.index:
+                        if fp_waiting_df.loc[idx, '担当者'] != edited_fp_df.loc[idx, '担当者']:
+                            update_assign(edited_fp_df.loc[idx, '案件ID'], edited_fp_df.loc[idx, '担当者'])
+                            break
+
+            if not normal_waiting_df.empty:
+                if not fp_waiting_df.empty:
+                    st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #4a5568; font-weight: bold;'>🔹 通常タスク</div>", unsafe_allow_html=True)
+                edited_normal_df = st.data_editor(
+                    normal_waiting_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
+                    column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                    column_config={
+                        "タイトル": st.column_config.Column("タイトル", width="large"),
+                        "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
+                        "ステータス": st.column_config.Column("ステータス", width="small"),
+                        "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                        "案件ID": None, 
+                        "is_fp": None,
+                    },
+                    key="admin_normal_waiting_data_editor"
+                )
+                if not edited_normal_df.equals(normal_waiting_df):
+                    for idx in normal_waiting_df.index:
+                        if normal_waiting_df.loc[idx, '担当者'] != edited_normal_df.loc[idx, '担当者']:
+                            update_assign(edited_normal_df.loc[idx, '案件ID'], edited_normal_df.loc[idx, '担当者'])
+                            break
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         
         st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>🏃 着手中・中断中の案件リスト (担当者変更可)</h4>", unsafe_allow_html=True)
@@ -1309,6 +1358,7 @@ elif current_tab == "⚙️ 管理者":
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "表示用案件ID": st.column_config.Column("案件ID", width="small"),
                     "案件ID": None, 
+                    "is_fp": None,
                 }
             )
 
