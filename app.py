@@ -329,6 +329,21 @@ def reset_system():
         except Exception as e:
             st.error(f"リセットエラー: {e}")
 
+# ▼▼▼ 新規追加: ユーザー画面からステータスを変更した際にGASに即座に通知するAPI連携 ▼▼▼
+def update_user_status_api(name, status):
+    with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
+        payload = {
+            "action": "update_member_status",
+            "name": name,
+            "status": status
+        }
+        try:
+            requests.post(GAS_URL, json=payload)
+            fetch_data.clear() # 最新のアサイン状況を取得し直すためにキャッシュクリア
+        except Exception as e:
+            st.error(f"ステータス更新エラー: {e}")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 # ==========================================
 # 4. ヘッダー
 # ==========================================
@@ -486,6 +501,8 @@ if current_tab == "👤 ユーザー":
                         st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
                         break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
                     )
+                    # ▼ 修正: JSON保存と同時にGASにも「出社」を通知して他のタスクを奪い取る
+                    update_user_status_api(st.session_state.selected_user, "出社")
                     st.rerun()
             else:
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
@@ -497,6 +514,8 @@ if current_tab == "👤 ユーザー":
                         st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
                         break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
                     )
+                    # ▼ 修正: JSON保存と同時にGASにも「休憩中」を通知してタスクを手放す
+                    update_user_status_api(st.session_state.selected_user, "休憩中")
                     st.rerun()
                     
         with btn_c2:
@@ -512,6 +531,8 @@ if current_tab == "👤 ユーザー":
                         other_work_start_time = None
                         
                     save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
+                    # ▼ 修正: 戻ったことを通知
+                    update_user_status_api(st.session_state.selected_user, "出社")
                     st.rerun()
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
@@ -519,9 +540,10 @@ if current_tab == "👤 ユーザー":
                     other_work_start_time = now 
                     other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
                     save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
+                    # ▼ 修正: 別業務に入ったことを通知
+                    update_user_status_api(st.session_state.selected_user, "別業務中")
                     st.rerun()
                     
-        # ▼▼▼ 修正: 休憩ログと別業務ログを左右に分割して表示 ▼▼▼
         b_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in break_logs[-3:]])
         o_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in other_work_logs[-3:]])
         
