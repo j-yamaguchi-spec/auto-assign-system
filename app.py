@@ -118,7 +118,6 @@ def clear_all_work_data():
         except Exception:
             pass
 
-# ▼▼▼ 追加: システム全体の設定を保存するためのJSONファイル操作関数 ▼▼▼
 SYSTEM_SETTINGS_FILE = "system_settings.json"
 
 def get_system_settings():
@@ -139,7 +138,6 @@ def save_system_settings(key, value):
     except Exception:
         pass
 
-# ▼▼▼ 追加: タスクの着手時間を保存するためのJSONファイル操作関数 ▼▼▼
 TASK_TIME_FILE = "task_times.json"
 
 def get_task_times():
@@ -159,7 +157,6 @@ def save_task_time(anken_id, time_str):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
@@ -188,7 +185,6 @@ st.markdown("""
         overflow-y: auto; margin-top: 5px; padding-left: 20px;
     }
     
-    /* ヘッダーの固定 */
     div[data-testid="stVerticalBlock"]:has(#sticky-header-anchor):not(:has(div[data-testid="stVerticalBlock"]:has(#sticky-header-anchor))) {
         position: fixed !important;
         top: 0 !important;
@@ -208,7 +204,6 @@ st.markdown("""
         padding-bottom: 2rem; 
     }
     
-    /* コードブロック(コピー枠)内の長文を折り返すCSS */
     div[data-testid="stCodeBlock"] {
         margin-bottom: 0.5rem !important;
     }
@@ -224,12 +219,42 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. バックエンド通信ロジック
+# 3. バックエンド通信ロジック (リトライ機能搭載)
 # ==========================================
+# ▼▼▼ 追加: 通信失敗時や混雑時に自動で再送信する最強の防御関数 ▼▼▼
+def safe_api_post(payload, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            # timeoutを長めに設定（40秒）
+            response = requests.post(GAS_URL, json=payload, timeout=40)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("status") == "success":
+                    return result
+                elif "混み合っています" in result.get("message", ""):
+                    # サーバー混雑のエラーが返ってきたら、2秒待ってリトライ
+                    time.sleep(2)
+                    continue
+                else:
+                    raise Exception(result.get("message", "不明なエラーが発生しました"))
+            else:
+                # 200以外のステータスコードの場合もリトライ
+                time.sleep(2)
+                continue
+        except requests.exceptions.RequestException as e:
+            # タイムアウトなどの通信エラーが起きた場合もリトライ
+            if attempt == max_retries - 1:
+                raise Exception("通信エラーが繰り返し発生しました。インターネット接続を確認してください。")
+            time.sleep(2)
+            continue
+            
+    raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 @st.cache_data(ttl=60) 
 def fetch_data():
     try:
-        response = requests.get(GAS_URL)
+        response = requests.get(GAS_URL, timeout=30)
         fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
         if response.status_code == 200:
             data = response.json()
@@ -242,18 +267,16 @@ def fetch_data():
                 api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
                 members_data = data.get("membersData", [])
                 api_manual_data = data.get("manualData", [])
-                
-                # ▼▼▼ ファストパスのIDリストを受け取る ▼▼▼
                 api_fastpass_ids = data.get("fastpassIds", [])
                 
                 return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], fetch_time
     except Exception as e:
-        st.error(f"通信エラー: {e}")
+        st.error(f"データ取得エラー: {e}")
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min=""):
-    with st.spinner('ステータスを更新中...'):
+    with st.spinner('ステータスを更新し、裏側で再計算しています...'):
         if new_status == "着手":
             now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
             save_task_time(anken_id, now_str)
@@ -265,25 +288,25 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
             "fukkatsu_min": fukkatsu_min
         }
         try:
-            requests.post(GAS_URL, json=payload)
+            safe_api_post(payload) # リトライ関数を使用
             fetch_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"更新エラー: {e}")
+            st.error(f"更新に失敗しました: {e}")
 
 def update_assign(anken_id, assigned):
-    with st.spinner('担当者を更新中...'):
+    with st.spinner('担当者を更新し、裏側で再計算しています...'):
         payload = {
             "action": "update_assign",
             "anken_id": anken_id,
             "assigned": assigned
         }
         try:
-            requests.post(GAS_URL, json=payload)
+            safe_api_post(payload)
             fetch_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"更新エラー: {e}")
+            st.error(f"更新に失敗しました: {e}")
 
 def update_settings(past_days, future_days):
     with st.spinner('設定を保存中...'):
@@ -293,11 +316,11 @@ def update_settings(past_days, future_days):
             "future_days": future_days
         }
         try:
-            requests.post(GAS_URL, json=payload)
+            safe_api_post(payload)
             fetch_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"更新エラー: {e}")
+            st.error(f"更新に失敗しました: {e}")
 
 def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
     with st.spinner(f'{name}さんの設定を保存中...'):
@@ -312,26 +335,25 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
             "jiei": jiei
         }
         try:
-            requests.post(GAS_URL, json=payload)
+            safe_api_post(payload)
             fetch_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"更新エラー: {e}")
+            st.error(f"更新に失敗しました: {e}")
 
 def reset_system():
-    with st.spinner('システムを全リセットし、再振り分けを行っています... (数十秒かかります)'):
+    with st.spinner('システムを全リセットし、再振り分けを行っています... (時間がかかります)'):
         payload = {
             "action": "reset_system"
         }
         try:
-            requests.post(GAS_URL, json=payload)
+            safe_api_post(payload)
             clear_all_work_data()
             fetch_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"リセットエラー: {e}")
+            st.error(f"リセットに失敗しました: {e}")
 
-# ▼▼▼ 新規追加: ユーザー画面からステータスを変更した際にGASに即座に通知するAPI連携 ▼▼▼
 def update_user_status_api(name, status):
     with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
         payload = {
@@ -340,11 +362,10 @@ def update_user_status_api(name, status):
             "status": status
         }
         try:
-            requests.post(GAS_URL, json=payload)
-            fetch_data.clear() # 最新のアサイン状況を取得し直すためにキャッシュクリア
+            safe_api_post(payload)
+            fetch_data.clear() 
         except Exception as e:
-            st.error(f"ステータス更新エラー: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            st.error(f"ステータス連携エラー: {e}")
 
 # ==========================================
 # 4. ヘッダー
@@ -355,7 +376,6 @@ def handle_refresh():
 header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, fetch_time = fetch_data()
 
-# 全体の中で一番古い「未対応」タスクの日付を取得 (ファストパスの条件判定用)
 min_unassigned_date = None
 if not df.empty:
     unassigned_df = df[df['status'] == '未対応']
@@ -817,10 +837,8 @@ if current_tab == "👤 ユーザー":
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
-        # ▼▼▼ 優先(ファストパス)の判定と並び替え ▼▼▼
         waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
         waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         for idx, task in waiting_tasks.iterrows():
             task_date = task['datetime'].strftime('%m/%d')
@@ -1202,9 +1220,7 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        # ▼▼▼ 優先(ファストパス)の判定を全体データに適用 ▼▼▼
         all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
@@ -1254,7 +1270,6 @@ elif current_tab == "⚙️ 管理者":
         else:
             waiting_cases_display_df = waiting_cases_df
         
-        # ▼▼▼ 管理者画面でファストパスと通常のリストを分離 ▼▼▼
         fp_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == True].reset_index(drop=True)
         normal_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == False].reset_index(drop=True)
         
@@ -1310,7 +1325,6 @@ elif current_tab == "⚙️ 管理者":
                         if normal_waiting_df.loc[idx, '担当者'] != edited_normal_df.loc[idx, '担当者']:
                             update_assign(edited_normal_df.loc[idx, '案件ID'], edited_normal_df.loc[idx, '担当者'])
                             break
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         
         st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>🏃 着手中・中断中の案件リスト (担当者変更可)</h4>", unsafe_allow_html=True)
