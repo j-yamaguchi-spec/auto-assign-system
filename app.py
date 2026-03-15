@@ -1049,7 +1049,7 @@ elif current_tab == "⚙️ 管理者":
                         task_counts[d][cat] += 1
             else:
                 task_counts = {}
-                upcoming_df.append({
+                upcoming_data.append({  
                     "日付（曜日）": date_str,
                     "他営AM": am_c,
                     "他営PM": pm_c,
