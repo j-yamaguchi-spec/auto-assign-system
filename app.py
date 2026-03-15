@@ -221,35 +221,29 @@ st.markdown("""
 # ==========================================
 # 3. バックエンド通信ロジック (リトライ機能搭載)
 # ==========================================
-# ▼▼▼ 追加: 通信失敗時や混雑時に自動で再送信する最強の防御関数 ▼▼▼
 def safe_api_post(payload, max_retries=3):
     for attempt in range(max_retries):
         try:
-            # timeoutを長めに設定（40秒）
             response = requests.post(GAS_URL, json=payload, timeout=40)
             if response.status_code == 200:
                 result = response.json()
                 if result.get("status") == "success":
                     return result
                 elif "混み合っています" in result.get("message", ""):
-                    # サーバー混雑のエラーが返ってきたら、2秒待ってリトライ
                     time.sleep(2)
                     continue
                 else:
                     raise Exception(result.get("message", "不明なエラーが発生しました"))
             else:
-                # 200以外のステータスコードの場合もリトライ
                 time.sleep(2)
                 continue
         except requests.exceptions.RequestException as e:
-            # タイムアウトなどの通信エラーが起きた場合もリトライ
             if attempt == max_retries - 1:
                 raise Exception("通信エラーが繰り返し発生しました。インターネット接続を確認してください。")
             time.sleep(2)
             continue
             
     raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 @st.cache_data(ttl=60) 
 def fetch_data():
@@ -288,7 +282,7 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
             "fukkatsu_min": fukkatsu_min
         }
         try:
-            safe_api_post(payload) # リトライ関数を使用
+            safe_api_post(payload) 
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -354,7 +348,6 @@ def reset_system():
         except Exception as e:
             st.error(f"リセットに失敗しました: {e}")
 
-# ▼▼▼ 新規追加: 全メンバーの残業時間を一括更新するAPI連携 ▼▼▼
 def update_all_overtime(minutes):
     with st.spinner(f'全メンバーの残業時間を {minutes} 分に設定し、再計算中...'):
         payload = {
@@ -367,7 +360,6 @@ def update_all_overtime(minutes):
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_user_status_api(name, status):
     with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
@@ -1049,7 +1041,24 @@ elif current_tab == "⚙️ 管理者":
                         task_counts[d][cat] += 1
             else:
                 task_counts = {}
-                upcoming_data.append({  
+
+            now = pd.Timestamp.now(tz='Asia/Tokyo')
+            today_date = now.date()
+            youbi_list = ['月', '火', '水', '木', '金', '土', '日']
+            
+            upcoming_data = []
+            for i in range(7):
+                target_d = today_date + pd.Timedelta(days=i)
+                counts = task_counts.get(target_d, {'他営AM': 0, '他営PM': 0, '自営': 0})
+                
+                am_c = counts['他営AM']
+                pm_c = counts['他営PM']
+                jiei_c = counts['自営']
+                total_c = am_c + pm_c + jiei_c
+                
+                date_str = f"{target_d.month}/{target_d.day}（{youbi_list[target_d.weekday()]}）"
+                
+                upcoming_data.append({
                     "日付（曜日）": date_str,
                     "他営AM": am_c,
                     "他営PM": pm_c,
@@ -1072,7 +1081,6 @@ elif current_tab == "⚙️ 管理者":
                 }
             )
 
-            # ▼▼▼ 新規追加: 全メンバー一括 残業設定のUI ▼▼▼
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #4a5568;'>⏰ 全メンバー一括 残業設定</h5>", unsafe_allow_html=True)
             st.markdown("<p style='font-size: 0.85em; color: #718096; margin-bottom: 10px;'>※この設定は「早番」の退勤リミット（17:00）を延長し、夕方以降のタスクも割り当てられるようにします。</p>", unsafe_allow_html=True)
@@ -1087,7 +1095,6 @@ elif current_tab == "⚙️ 管理者":
             with col_ot2:
                 if st.button("💾 適用して再計算", type="primary", use_container_width=True, key="btn_update_ot"):
                     update_all_overtime(new_overtime)
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         with col_admin_r:
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
@@ -1395,7 +1402,7 @@ elif current_tab == "⚙️ 管理者":
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
         
         with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
-            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
+            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手 manualで変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
