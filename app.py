@@ -781,34 +781,48 @@ if current_tab == "👤 ユーザー":
             target_end_date = today_date + pd.Timedelta(days=1)
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
-        my_active_target_period = my_active_tasks[
-            (my_active_tasks['datetime'].dt.date >= today_date) & 
-            (my_active_tasks['datetime'].dt.date <= target_end_date)
-        ]
         
-        if my_active_target_period.empty:
-            other_target_tasks = pd.DataFrame()
-            if not df.empty:
-                other_target_tasks = df[
-                    (df['datetime'].dt.date > today_date) & 
-                    (df['datetime'].dt.date <= target_end_date) & 
-                    (df['status'] == '未対応') &  
-                    (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
-                    (df['product'] != 'JOBYmini')
-                ].sort_values('datetime')
-                
-            if not other_target_tasks.empty:
-                st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>📅 明日〜{target_end_date.strftime('%m/%d')} の待機タスク (他/未割当)</div>", unsafe_allow_html=True)
-                task_list_html = "<div class='custom-card' style='padding: 6px 12px; border-left-color: #ecc94b; max-height: 90px; overflow-y: auto; font-size: 0.85em; margin-bottom: 0;'>"
-                for _, t in other_target_tasks.iterrows():
-                    t_date = t['datetime'].strftime('%m/%d')
-                    t_time = t['datetime'].strftime('%H:%M')
-                    disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                    task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_date} {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
-                task_list_html += "</div>"
-                st.markdown(task_list_html, unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 明日〜{target_end_date.strftime('%m/%d')} の待機タスクはありません</div>", unsafe_allow_html=True)
+        # ▼▼▼ 修正: 日ごとに判定し、自分のタスクがない日の他/未割当タスクを日別に表示 ▼▼▼
+        current_date = today_date
+        has_any_displayed = False
+        
+        while current_date <= target_end_date:
+            # その日の自分のアクティブタスクを取得
+            my_active_for_date = my_active_tasks[my_active_tasks['datetime'].dt.date == current_date]
+            
+            # 自分のタスクがない場合のみ、その日の他の未対応タスクを探して表示
+            if my_active_for_date.empty:
+                other_target_tasks = pd.DataFrame()
+                if not df.empty:
+                    other_target_tasks = df[
+                        (df['datetime'].dt.date == current_date) & 
+                        (df['status'] == '未対応') &  
+                        (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
+                        (df['product'] != 'JOBYmini')
+                    ].sort_values('datetime')
+                    
+                if not other_target_tasks.empty:
+                    has_any_displayed = True
+                    date_str = current_date.strftime('%m/%d')
+                    if current_date == today_date:
+                        header_text = f"📅 今日 ({date_str}) の待機タスク (他/未割当)"
+                    else:
+                        header_text = f"📅 {date_str} の待機タスク (他/未割当)"
+                        
+                    st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
+                    task_list_html = "<div class='custom-card' style='padding: 6px 12px; border-left-color: #ecc94b; max-height: 90px; overflow-y: auto; font-size: 0.85em; margin-bottom: 8px;'>"
+                    for _, t in other_target_tasks.iterrows():
+                        t_time = t['datetime'].strftime('%H:%M')
+                        disp_id = str(t['anken_id']).replace('_fukkatsu', '')
+                        task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
+                    task_list_html += "</div>"
+                    st.markdown(task_list_html, unsafe_allow_html=True)
+            
+            current_date += pd.Timedelta(days=1) # 翌日へ進める
+            
+        if not has_any_displayed:
+            st.markdown(f"<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 今日〜{target_end_date.strftime('%m/%d')} の待機タスクはありません</div>", unsafe_allow_html=True)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     # --- 中段: 現在着手中の案件 ---
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
@@ -1097,7 +1111,7 @@ elif current_tab == "⚙️ 管理者":
                 if not target_tasks.empty:
                     target_tasks['date'] = target_tasks['datetime'].dt.date
                     target_tasks['time'] = target_tasks['datetime'].dt.time
-                    target_tasks['is_jiei'] = target_tasks['title'].astype(str).str.contains('/自', na=False)
+                    target_tasks['is_jiei'] = target_tasks['method'].astype(str).str.contains('自営', na=False)
                     target_tasks['is_am'] = target_tasks['time'] <= boundary_time
                     
                     def categorize(row):
