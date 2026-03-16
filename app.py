@@ -1111,7 +1111,7 @@ elif current_tab == "⚙️ 管理者":
                 if not target_tasks.empty:
                     target_tasks['date'] = target_tasks['datetime'].dt.date
                     target_tasks['time'] = target_tasks['datetime'].dt.time
-                    target_tasks['is_jiei'] = target_tasks['title'].astype(str).str.contains('自営', na=False)
+                    target_tasks['is_jiei'] = target_tasks['title'].astype(str).str.contains('/自', na=False)
                     target_tasks['is_am'] = target_tasks['time'] <= boundary_time
                     
                     def categorize(row):
