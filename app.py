@@ -158,6 +158,71 @@ def save_task_time(anken_id, time_str):
     except Exception:
         pass
 
+# ▼▼▼ 追加: アクションログ（過去1時間の動作履歴）用のファイル操作関数 ▼▼▼
+ACTION_LOG_FILE = "action_logs.json"
+
+def add_action_log(username, action, details=""):
+    logs = []
+    if os.path.exists(ACTION_LOG_FILE):
+        try:
+            with open(ACTION_LOG_FILE, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+        except Exception:
+            pass
+    
+    now = pd.Timestamp.now(tz='Asia/Tokyo')
+    one_hour_ago = now - pd.Timedelta(hours=1)
+    
+    # 過去1時間より前の古いログを削除（クリーンアップ）
+    valid_logs = []
+    for log in logs:
+        try:
+            log_time = pd.to_datetime(log["timestamp"])
+            if log_time >= one_hour_ago:
+                valid_logs.append(log)
+        except:
+            pass
+            
+    # 新しいログを追加
+    valid_logs.append({
+        "timestamp": now.isoformat(),
+        "user": username,
+        "action": action,
+        "details": details
+    })
+    
+    try:
+        with open(ACTION_LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(valid_logs, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def get_action_logs():
+    if os.path.exists(ACTION_LOG_FILE):
+        try:
+            with open(ACTION_LOG_FILE, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+                
+                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                one_hour_ago = now - pd.Timedelta(hours=1)
+                
+                valid_logs = []
+                for log in logs:
+                    try:
+                        log_time = pd.to_datetime(log["timestamp"])
+                        if log_time >= one_hour_ago:
+                            valid_logs.append(log)
+                    except:
+                        pass
+                
+                # 新しい順（降順）にソートして返す
+                valid_logs.sort(key=lambda x: x["timestamp"], reverse=True)
+                return valid_logs
+        except Exception:
+            pass
+    return []
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
 
@@ -283,6 +348,7 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
         }
         try:
             safe_api_post(payload) 
+            add_action_log(st.session_state.selected_user, "タスク状態変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -297,6 +363,7 @@ def update_assign(anken_id, assigned):
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "担当者手動変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -311,6 +378,7 @@ def update_settings(past_days, future_days):
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "カレンダー設定変更", f"過去{past_days}日 / 未来{future_days}日 に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -330,6 +398,7 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "メンバー設定変更", f"{name} さんのスキル/ステータスを更新")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -342,6 +411,7 @@ def reset_system():
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
             clear_all_work_data()
             fetch_data.clear()
             st.rerun()
@@ -356,6 +426,7 @@ def update_all_overtime(minutes):
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "残業時間一括設定", f"全メンバーの残業時間を {minutes} 分に設定")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -370,6 +441,7 @@ def update_user_status_api(name, status):
         }
         try:
             safe_api_post(payload)
+            add_action_log(st.session_state.selected_user, "ステータス連動", f"{name} さんが「{status}」に変更")
             fetch_data.clear() 
         except Exception as e:
             st.error(f"ステータス連携エラー: {e}")
@@ -682,6 +754,7 @@ if current_tab == "👤 ユーザー":
                         cancel_total_min=new_total_min,
                         cancel_count=new_count
                     )
+                    add_action_log(st.session_state.selected_user, "代筆中キャンセル追加", f"{input_c_min}分 {memo_str}")
                     st.rerun()
 
             st.markdown("""
@@ -1406,6 +1479,39 @@ elif current_tab == "⚙️ 管理者":
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
+
+        # ▼▼▼ 新規追加: 過去1時間の動作ログ ▼▼▼
+        st.markdown("<hr style='margin: 40px 0 20px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #4a5568;'>📜 過去1時間のシステム動作ログ</h4>", unsafe_allow_html=True)
+        
+        action_logs = get_action_logs()
+        if not action_logs:
+            st.info("過去1時間の間に記録された動作ログはありません。")
+        else:
+            log_data = []
+            for log in action_logs:
+                ts = pd.to_datetime(log["timestamp"]).strftime('%H:%M:%S')
+                log_data.append({
+                    "時間": ts,
+                    "操作ユーザー": log["user"],
+                    "アクション": log["action"],
+                    "詳細": log["details"]
+                })
+            
+            log_df = pd.DataFrame(log_data)
+            st.dataframe(
+                log_df,
+                use_container_width=True,
+                hide_index=True,
+                height=300,
+                column_config={
+                    "時間": st.column_config.Column("時間", width="small"),
+                    "操作ユーザー": st.column_config.Column("操作ユーザー", width="small"),
+                    "アクション": st.column_config.Column("アクション", width="medium"),
+                    "詳細": st.column_config.Column("詳細", width="large"),
+                }
+            )
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 7. 監査マニュアルタブ
