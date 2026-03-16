@@ -306,26 +306,52 @@ def safe_api_post(payload, max_retries=3):
             
     raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
 
+# ▼▼▼ 新規追加: 読み込み(GET)専用の自動リトライ＆タイムアウト延長関数 ▼▼▼
+def safe_api_get(max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            # タイムアウトを 30秒 から 45秒 に延長
+            response = requests.get(GAS_URL, timeout=45)
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                except Exception:
+                    raise Exception("サーバーから無効な応答が返りました。")
+                
+                if result.get("status") == "success":
+                    return result
+                else:
+                    raise Exception(result.get("message", "不明なエラーが発生しました"))
+            else:
+                time.sleep(2)
+                continue
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise Exception(f"通信タイムアウトが発生しました。詳細: {e}")
+            time.sleep(2)
+            continue
+            
+    raise Exception("システムが非常に混み合っています。")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 @st.cache_data(ttl=60) 
 def fetch_data():
     try:
-        response = requests.get(GAS_URL, timeout=30)
+        # ▼ 修正: requests.get(...) を safe_api_get() に置き換え ▼
+        data = safe_api_get()
         fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status") == "success":
-                df = pd.DataFrame(data.get("data", []))
-                if not df.empty:
-                    df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
-                
-                members = data.get("members", [])
-                api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
-                members_data = data.get("membersData", [])
-                api_manual_data = data.get("manualData", [])
-                api_fastpass_ids = data.get("fastpassIds", [])
-                
-                return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], fetch_time
+        
+        df = pd.DataFrame(data.get("data", []))
+        if not df.empty:
+            df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
+        
+        members = data.get("members", [])
+        api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
+        members_data = data.get("membersData", [])
+        api_manual_data = data.get("manualData", [])
+        api_fastpass_ids = data.get("fastpassIds", [])
+        
+        return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
