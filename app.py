@@ -428,7 +428,6 @@ def update_all_overtime(minutes):
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-# ▼▼▼ 修正: 通信エラーを見逃さず、成功した時だけTrueを返すように改良 ▼▼▼
 def update_user_status_api(name, status):
     with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
         payload = {
@@ -444,7 +443,6 @@ def update_user_status_api(name, status):
         except Exception as e:
             st.error(f"⚠️ GASとの通信に失敗しました。\nGAS側で『新しいバージョンとしてデプロイ』が実行されていない可能性が高いです。\n詳細: {e}")
             return False
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 4. ヘッダー
@@ -467,6 +465,19 @@ if not df.empty:
         df.loc[f_min_num > 0, 'fukkatsu'] = True
     elif 'fukkatsu' not in df.columns:
         df['fukkatsu'] = False
+
+# ▼▼▼ 新規追加: 監視アラートシステム（未割当タスク検知） ▼▼▼
+unassigned_alert_tasks = pd.DataFrame()
+if not df.empty:
+    unassigned_alert_tasks = df[
+        (df['status'] == '未対応') & 
+        (df['product'] != 'JOBYmini') & 
+        (df['assigned'].fillna('').astype(str).str.strip().isin(['', 'None', 'NaN', '未割当']))
+    ].sort_values('datetime')
+
+if not unassigned_alert_tasks.empty:
+    st.error(f"🚨 **【緊急】担当者が空欄のまま漏れている待機タスクが {len(unassigned_alert_tasks)} 件あります！** \n自動振り分けが不可能な状態です（出社メンバーが0人か、該当スキルの保持者が不在）。\nページ下部の「緊急タスクリスト」から手動で拾うか、管理者画面で出社/スキル状況を見直してください。")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 with header_container:
     st.markdown('<div id="sticky-header-anchor"></div>', unsafe_allow_html=True)
@@ -595,7 +606,6 @@ if current_tab == "👤 ユーザー":
         with btn_c1:
             if current_status == "休憩中":
                 if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
                     if update_user_status_api(st.session_state.selected_user, "出社"):
                         now = pd.Timestamp.now(tz='Asia/Tokyo')
                         break_logs.append(f"終了: {now.strftime('%H:%M')}")
@@ -613,7 +623,6 @@ if current_tab == "👤 ユーザー":
                         st.rerun()
             else:
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
-                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
                     if update_user_status_api(st.session_state.selected_user, "休憩中"):
                         now = pd.Timestamp.now(tz='Asia/Tokyo')
                         break_start_time = now
@@ -628,7 +637,6 @@ if current_tab == "👤 ユーザー":
         with btn_c2:
             if current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
                     if update_user_status_api(st.session_state.selected_user, "出社"):
                         now = pd.Timestamp.now(tz='Asia/Tokyo')
                         other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
@@ -643,7 +651,6 @@ if current_tab == "👤 ユーザー":
                         st.rerun()
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
-                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
                     if update_user_status_api(st.session_state.selected_user, "別業務中"):
                         now = pd.Timestamp.now(tz='Asia/Tokyo')
                         other_work_start_time = now 
@@ -782,15 +789,12 @@ if current_tab == "👤 ユーザー":
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
         
-        # ▼▼▼ 修正: 日ごとに判定し、自分のタスクがない日の他/未割当タスクを日別に表示 ▼▼▼
         current_date = today_date
         has_any_displayed = False
         
         while current_date <= target_end_date:
-            # その日の自分のアクティブタスクを取得
             my_active_for_date = my_active_tasks[my_active_tasks['datetime'].dt.date == current_date]
             
-            # 自分のタスクがない場合のみ、その日の他の未対応タスクを探して表示
             if my_active_for_date.empty:
                 other_target_tasks = pd.DataFrame()
                 if not df.empty:
@@ -818,11 +822,44 @@ if current_tab == "👤 ユーザー":
                     task_list_html += "</div>"
                     st.markdown(task_list_html, unsafe_allow_html=True)
             
-            current_date += pd.Timedelta(days=1) # 翌日へ進める
+            current_date += pd.Timedelta(days=1) 
             
         if not has_any_displayed:
             st.markdown(f"<div style='margin-bottom: 2px; color: #a0aec0; font-weight: bold; font-size: 0.85em;'>📅 今日〜{target_end_date.strftime('%m/%d')} の待機タスクはありません</div>", unsafe_allow_html=True)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    # --- 緊急: 未割当(SOS)タスクリスト ---
+    if not unassigned_alert_tasks.empty:
+        st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #e53e3e; font-weight: bold;'>🚨 誰も担当していない緊急タスク (手動で拾ってください)</div>", unsafe_allow_html=True)
+        for idx, task in unassigned_alert_tasks.iterrows():
+            task_date = task['datetime'].strftime('%m/%d')
+            start_t = task['datetime'].strftime('%H:%M')
+            duration_m = int(task['duration'])
+            f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
+            
+            with st.container(border=True):
+                st.markdown(f"""
+                <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 8px; background-color: #fff5f5; padding-top: 5px; padding-bottom: 5px;">
+                    <div style="font-weight: bold; color: #e53e3e; margin-bottom: 2px;">
+                        <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
+                    </div>
+                    <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        📝 {task['title']}
+                    </div>
+                    <div style="color: #e53e3e; font-size: 0.85em; font-weight: bold;">
+                        🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; ⚠️ 未割当
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_id, col_phone = st.columns(2)
+                with col_id:
+                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    st.markdown(f"<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 {disp_id}</div>", unsafe_allow_html=True)
+                
+                b_col1, b_col2 = st.columns([4, 1.5])
+                with b_col2:
+                    if st.button("🙋 私が担当する", key=f"sos_assign_{task['anken_id']}", type="primary", use_container_width=True):
+                        update_assign(task['anken_id'], st.session_state.selected_user)
 
     # --- 中段: 現在着手中の案件 ---
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
