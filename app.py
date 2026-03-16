@@ -8,13 +8,11 @@ import os
 import streamlit.components.v1 as components 
 import html as html_lib 
 
-# ▼▼▼ 追加: 自動更新用のライブラリをインポート試行 ▼▼▼
 try:
     from streamlit_autorefresh import st_autorefresh
     HAS_AUTOREFRESH = True
 except ImportError:
     HAS_AUTOREFRESH = False
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 1. 初期設定とセッションステート
@@ -22,9 +20,8 @@ except ImportError:
 st.set_page_config(page_title="自動振り分けシステム", layout="wide")
 
 if "selected_user" not in st.session_state:
-    st.session_state.selected_user = "柿木田" # テストデータに存在する名前に初期化
+    st.session_state.selected_user = "柿木田" 
 
-# ▼▼▼ 追加: ログ永続化のためのJSONファイル操作関数 ▼▼▼
 WORK_LOG_FILE = "work_logs.json"
 
 def get_user_work_data(username):
@@ -158,7 +155,6 @@ def save_task_time(anken_id, time_str):
     except Exception:
         pass
 
-# ▼▼▼ 追加: アクションログ（過去1時間の動作履歴）用のファイル操作関数 ▼▼▼
 ACTION_LOG_FILE = "action_logs.json"
 
 def add_action_log(username, action, details=""):
@@ -173,7 +169,6 @@ def add_action_log(username, action, details=""):
     now = pd.Timestamp.now(tz='Asia/Tokyo')
     one_hour_ago = now - pd.Timedelta(hours=1)
     
-    # 過去1時間より前の古いログを削除（クリーンアップ）
     valid_logs = []
     for log in logs:
         try:
@@ -183,7 +178,6 @@ def add_action_log(username, action, details=""):
         except:
             pass
             
-    # 新しいログを追加
     valid_logs.append({
         "timestamp": now.isoformat(),
         "user": username,
@@ -215,13 +209,11 @@ def get_action_logs():
                     except:
                         pass
                 
-                # 新しい順（降順）にソートして返す
                 valid_logs.sort(key=lambda x: x["timestamp"], reverse=True)
                 return valid_logs
         except Exception:
             pass
     return []
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
@@ -291,7 +283,11 @@ def safe_api_post(payload, max_retries=3):
         try:
             response = requests.post(GAS_URL, json=payload, timeout=40)
             if response.status_code == 200:
-                result = response.json()
+                try:
+                    result = response.json()
+                except Exception:
+                    raise Exception("サーバーから無効な応答が返りました。GASが最新バージョンにデプロイされているか確認してください。")
+                
                 if result.get("status") == "success":
                     return result
                 elif "混み合っています" in result.get("message", ""):
@@ -302,9 +298,9 @@ def safe_api_post(payload, max_retries=3):
             else:
                 time.sleep(2)
                 continue
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             if attempt == max_retries - 1:
-                raise Exception("通信エラーが繰り返し発生しました。インターネット接続を確認してください。")
+                raise Exception(f"通信エラーが発生しました。詳細: {e}")
             time.sleep(2)
             continue
             
@@ -432,6 +428,7 @@ def update_all_overtime(minutes):
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
+# ▼▼▼ 修正: 通信エラーを見逃さず、成功した時だけTrueを返すように改良 ▼▼▼
 def update_user_status_api(name, status):
     with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
         payload = {
@@ -443,8 +440,11 @@ def update_user_status_api(name, status):
             safe_api_post(payload)
             add_action_log(st.session_state.selected_user, "ステータス連動", f"{name} さんが「{status}」に変更")
             fetch_data.clear() 
+            return True
         except Exception as e:
-            st.error(f"ステータス連携エラー: {e}")
+            st.error(f"⚠️ GASとの通信に失敗しました。\nGAS側で『新しいバージョンとしてデプロイ』が実行されていない可能性が高いです。\n詳細: {e}")
+            return False
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 4. ヘッダー
@@ -595,57 +595,61 @@ if current_tab == "👤 ユーザー":
         with btn_c1:
             if current_status == "休憩中":
                 if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    break_logs.append(f"終了: {now.strftime('%H:%M')}")
-                    
-                    if break_start_time:
-                        diff = now - break_start_time
-                        minutes = int(diff.total_seconds() / 60)
-                        break_total_min += minutes
-                        break_start_time = None
+                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
+                    if update_user_status_api(st.session_state.selected_user, "出社"):
+                        now = pd.Timestamp.now(tz='Asia/Tokyo')
+                        break_logs.append(f"終了: {now.strftime('%H:%M')}")
                         
-                    save_user_work_data(
-                        st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
-                        break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
-                    )
-                    update_user_status_api(st.session_state.selected_user, "出社")
-                    st.rerun()
+                        if break_start_time:
+                            diff = now - break_start_time
+                            minutes = int(diff.total_seconds() / 60)
+                            break_total_min += minutes
+                            break_start_time = None
+                            
+                        save_user_work_data(
+                            st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
+                            break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
+                        )
+                        st.rerun()
             else:
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
-                    now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    break_start_time = now
-                    break_logs.append(f"開始: {now.strftime('%H:%M')}")
-                    
-                    save_user_work_data(
-                        st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
-                        break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
-                    )
-                    update_user_status_api(st.session_state.selected_user, "休憩中")
-                    st.rerun()
+                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
+                    if update_user_status_api(st.session_state.selected_user, "休憩中"):
+                        now = pd.Timestamp.now(tz='Asia/Tokyo')
+                        break_start_time = now
+                        break_logs.append(f"開始: {now.strftime('%H:%M')}")
+                        
+                        save_user_work_data(
+                            st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
+                            break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
+                        )
+                        st.rerun()
                     
         with btn_c2:
             if current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
-                    
-                    if other_work_start_time:
-                        diff = now - other_work_start_time
-                        minutes = int(diff.total_seconds() / 60)
-                        other_work_total_min += minutes
-                        other_work_start_time = None
+                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
+                    if update_user_status_api(st.session_state.selected_user, "出社"):
+                        now = pd.Timestamp.now(tz='Asia/Tokyo')
+                        other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
                         
-                    save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
-                    update_user_status_api(st.session_state.selected_user, "出社")
-                    st.rerun()
+                        if other_work_start_time:
+                            diff = now - other_work_start_time
+                            minutes = int(diff.total_seconds() / 60)
+                            other_work_total_min += minutes
+                            other_work_start_time = None
+                            
+                        save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
+                        st.rerun()
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
-                    now = pd.Timestamp.now(tz='Asia/Tokyo')
-                    other_work_start_time = now 
-                    other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
-                    save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
-                    update_user_status_api(st.session_state.selected_user, "別業務中")
-                    st.rerun()
+                    # ▼ 修正: GAS通信が成功した時だけステータスを変更し画面をリロードする
+                    if update_user_status_api(st.session_state.selected_user, "別業務中"):
+                        now = pd.Timestamp.now(tz='Asia/Tokyo')
+                        other_work_start_time = now 
+                        other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
+                        save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
+                        st.rerun()
                     
         b_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in break_logs[-3:]])
         o_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in other_work_logs[-3:]])
@@ -1480,7 +1484,6 @@ elif current_tab == "⚙️ 管理者":
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
 
-        # ▼▼▼ 新規追加: 過去1時間の動作ログ ▼▼▼
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>📜 過去1時間のシステム動作ログ</h4>", unsafe_allow_html=True)
         
@@ -1511,7 +1514,6 @@ elif current_tab == "⚙️ 管理者":
                     "詳細": st.column_config.Column("詳細", width="large"),
                 }
             )
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 7. 監査マニュアルタブ
