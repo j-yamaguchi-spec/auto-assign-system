@@ -362,14 +362,15 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-# ▼▼▼ 修正1: 引数に check_unassigned=False を追加し、ペイロードにも含める ▼▼▼
-def update_assign(anken_id, assigned, check_unassigned=False):
+# ▼▼▼ 修正1: 引数に original_assign を追加し、ペイロードに含める ▼▼▼
+def update_assign(anken_id, assigned, check_unassigned=False, original_assign=None):
     with st.spinner('担当者を更新し、裏側で再計算しています...'):
         payload = {
             "action": "update_assign",
             "anken_id": anken_id,
             "assigned": assigned,
-            "check_unassigned": check_unassigned
+            "check_unassigned": check_unassigned,
+            "original_assign": original_assign
         }
         try:
             safe_api_post(payload)
@@ -877,9 +878,12 @@ if current_tab == "👤 ユーザー":
                             with c_info:
                                 st.markdown(f"<div style='font-size: 0.85em; color: #4a5568; margin-top: 6px;'>🕒 {t_time} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; ⏳ {duration_m} 分 &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🏷️ {product_str} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🆔 {disp_id}</div>", unsafe_allow_html=True)
                             with c_btn:
-                                # ▼▼▼ 修正2: 「🙋 取得」ボタンに check_unassigned=True を追加 ▼▼▼
+                                # ▼▼▼ 修正2: 「🙋 取得」ボタンを押した際、その時点での担当者情報を一緒に送る ▼▼▼
+                                orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
+                                if orig_assign in ["None", "NaN", "未割当"]:
+                                    orig_assign = ""
                                 if st.button("🙋 取得", key=f"take_other_{t['anken_id']}", use_container_width=True, help="このタスクを自分の担当にします"):
-                                    update_assign(t['anken_id'], st.session_state.selected_user, check_unassigned=True)
+                                    update_assign(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
                                 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                             
                             if idx < len(other_target_tasks) - 1:
@@ -922,9 +926,9 @@ if current_tab == "👤 ユーザー":
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
-                    # ▼▼▼ 修正3: 「🙋 私が担当する(緊急)」ボタンにも check_unassigned=True を追加 ▼▼▼
+                    # ▼▼▼ 修正3: 「🙋 私が担当する(緊急)」ボタンは完全に空欄なので original_assign="" を送る ▼▼▼
                     if st.button("🙋 私が担当する", key=f"sos_assign_{task['anken_id']}", type="primary", use_container_width=True):
-                        update_assign(task['anken_id'], st.session_state.selected_user, check_unassigned=True)
+                        update_assign(task['anken_id'], st.session_state.selected_user, original_assign="")
                     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
