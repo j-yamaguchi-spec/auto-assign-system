@@ -815,12 +815,40 @@ if current_tab == "👤 ユーザー":
             if my_active_for_date.empty:
                 other_target_tasks = pd.DataFrame()
                 if not df.empty:
-                    other_target_tasks = df[
+                    # まず基本的な条件で抽出
+                    base_other_tasks = df[
                         (df['datetime'].dt.date == current_date) & 
                         (df['status'] == '未対応') &  
                         (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                         (df['product'] != 'JOBYmini')
-                    ].sort_values('datetime')
+                    ].copy()
+                    
+                    # ▼▼▼ 追加: ユーザーのスキル（商材・自営）に合致するタスクのみに絞り込む ▼▼▼
+                    if not base_other_tasks.empty:
+                        user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
+                        if user_skills:
+                            def check_skill(row):
+                                title = str(row['title'])
+                                product = str(row['product'])
+                                
+                                # 自営スキルの判定
+                                if '/自' in title and not user_skills.get('jiei', False):
+                                    return False
+                                # 各商材スキルの判定
+                                if product == 'イツザイ' and not user_skills.get('itsuzai', False):
+                                    return False
+                                if product == 'エージェント' and not user_skills.get('agent', False):
+                                    return False
+                                # イツザイ・エージェント・JOBYmini以外はすべて「集客」として判定
+                                if product not in ['イツザイ', 'エージェント', 'JOBYmini'] and not user_skills.get('shukyaku', False):
+                                    return False
+                                return True
+                            
+                            mask = base_other_tasks.apply(check_skill, axis=1)
+                            other_target_tasks = base_other_tasks[mask].sort_values('datetime')
+                        else:
+                            other_target_tasks = base_other_tasks.sort_values('datetime')
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     
                 if not other_target_tasks.empty:
                     has_any_displayed = True
@@ -1501,10 +1529,12 @@ elif current_tab == "⚙️ 管理者":
                     disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
                     column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                     column_config={
-                        "タイトル": st.column_config.Column("タイトル", width="medium"),
+                        "タイトル": st.column_config.Column("タイトル", width="large"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
+                        # ▼▼▼ 修正1: width="small" を width="medium" に変更 ▼▼▼
                         "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
+                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "案件ID": None, 
                         "is_fp": None,
                     },
@@ -1529,7 +1559,9 @@ elif current_tab == "⚙️ 管理者":
                         "タイトル": st.column_config.Column("タイトル", width="large"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
-                        "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                        # ▼▼▼ 修正2: width="small" を width="medium" に変更 ▼▼▼
+                        "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
+                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "案件ID": None, 
                         "is_fp": None,
                     },
@@ -1558,7 +1590,9 @@ elif current_tab == "⚙️ 管理者":
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "開始時間": st.column_config.Column("開始時間", width="small"),
-                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                    # ▼▼▼ 修正3: width="small" を width="medium" に変更 ▼▼▼
+                    "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     "案件ID": None, 
                 },
                 key="admin_inprogress_data_editor"
@@ -1585,7 +1619,9 @@ elif current_tab == "⚙️ 管理者":
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.Column("担当者", width="small"),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
-                    "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                    # ▼▼▼ 修正4: width="small" を width="medium" に変更 ▼▼▼
+                    "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     "案件ID": None, 
                     "is_fp": None,
                 }
