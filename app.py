@@ -362,12 +362,14 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-def update_assign(anken_id, assigned):
+# ▼▼▼ 修正1: 引数に check_unassigned=False を追加し、ペイロードにも含める ▼▼▼
+def update_assign(anken_id, assigned, check_unassigned=False):
     with st.spinner('担当者を更新し、裏側で再計算しています...'):
         payload = {
             "action": "update_assign",
             "anken_id": anken_id,
-            "assigned": assigned
+            "assigned": assigned,
+            "check_unassigned": check_unassigned
         }
         try:
             safe_api_post(payload)
@@ -376,6 +378,7 @@ def update_assign(anken_id, assigned):
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_settings(past_days, future_days):
     with st.spinner('設定を保存中...'):
@@ -860,7 +863,6 @@ if current_tab == "👤 ユーザー":
                         
                     st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
                     
-                    # ▼▼▼ 修正: 他/未割当リストをStreamlitコンポーネント化し「取得」ボタンを追加 ▼▼▼
                     with st.container(border=True):
                         st.markdown("<div style='border-left: 4px solid #ecc94b; padding-left: 8px; margin: -10px;'>", unsafe_allow_html=True)
                         for idx, (_, t) in enumerate(other_target_tasks.iterrows()):
@@ -875,13 +877,14 @@ if current_tab == "👤 ユーザー":
                             with c_info:
                                 st.markdown(f"<div style='font-size: 0.85em; color: #4a5568; margin-top: 6px;'>🕒 {t_time} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; ⏳ {duration_m} 分 &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🏷️ {product_str} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🆔 {disp_id}</div>", unsafe_allow_html=True)
                             with c_btn:
+                                # ▼▼▼ 修正2: 「🙋 取得」ボタンに check_unassigned=True を追加 ▼▼▼
                                 if st.button("🙋 取得", key=f"take_other_{t['anken_id']}", use_container_width=True, help="このタスクを自分の担当にします"):
-                                    update_assign(t['anken_id'], st.session_state.selected_user)
+                                    update_assign(t['anken_id'], st.session_state.selected_user, check_unassigned=True)
+                                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                             
                             if idx < len(other_target_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             current_date += pd.Timedelta(days=1) 
             
@@ -919,10 +922,10 @@ if current_tab == "👤 ユーザー":
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
+                    # ▼▼▼ 修正3: 「🙋 私が担当する(緊急)」ボタンにも check_unassigned=True を追加 ▼▼▼
                     if st.button("🙋 私が担当する", key=f"sos_assign_{task['anken_id']}", type="primary", use_container_width=True):
-                        update_assign(task['anken_id'], st.session_state.selected_user)
-
-    # --- 中段: 現在着手中の案件 ---
+                        update_assign(task['anken_id'], st.session_state.selected_user, check_unassigned=True)
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
     active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
