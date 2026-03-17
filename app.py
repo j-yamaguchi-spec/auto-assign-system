@@ -1084,7 +1084,9 @@ if current_tab == "👤 ユーザー":
                     phone_str = str(task['phone']).strip() if pd.notna(task['phone']) and str(task['phone']).strip() != "" else ""
                     
                     st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                    col_id, col_phone = st.columns(2)
+                    
+                    # ▼▼▼ 修正: 「着手へ戻す」ボタンを配置するため、カラムを2つから3つに分割 ▼▼▼
+                    col_id, col_phone, col_action = st.columns([2, 2, 1.2])
                     with col_id:
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
                         disp_id = str(task['anken_id']).replace('_fukkatsu', '')
@@ -1094,6 +1096,12 @@ if current_tab == "👤 ユーザー":
                             phone_str = phone_str.replace(",", " ")
                             st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                             st.code(phone_str, language="text")
+                    with col_action:
+                        # ボタンの高さを揃えるための透明なテキスト
+                        st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                        if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
+                            update_status(task['anken_id'], "着手")
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 6. 管理者タブ
