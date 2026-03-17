@@ -802,7 +802,9 @@ if current_tab == "👤 ユーザー":
         else:
             target_end_date = today_date + pd.Timedelta(days=1)
         
-        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '中断', '未対応'])]
+        # ▼▼▼ 修正: 「中断」しかない日は空きと判定するため、条件から '中断' を除外 ▼▼▼
+        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         current_date = today_date
         has_any_displayed = False
@@ -833,7 +835,14 @@ if current_tab == "👤 ユーザー":
                     for _, t in other_target_tasks.iterrows():
                         t_time = t['datetime'].strftime('%H:%M')
                         disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                        task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
+                        
+                        # ▼▼▼ 修正: 商材と分数を取得して表示に追加 ▼▼▼
+                        duration_m = int(pd.to_numeric(t['duration'], errors='coerce').fillna(0))
+                        product_str = str(t['product']) if pd.notna(t['product']) else "不明"
+                        
+                        task_list_html += f"<div style='padding: 2px 0; border-bottom: 1px dashed #edf2f7; color: #4a5568;'>🕒 {t_time} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> ⏳ {duration_m} 分 <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🏷️ {product_str} <span style='color: #cbd5e0; margin: 0 5px;'>|</span> 🆔 {disp_id}</div>"
+                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                        
                     task_list_html += "</div>"
                     st.markdown(task_list_html, unsafe_allow_html=True)
             
