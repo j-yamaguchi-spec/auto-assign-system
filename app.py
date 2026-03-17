@@ -1504,7 +1504,7 @@ elif current_tab == "⚙️ 管理者":
                         "タイトル": st.column_config.Column("タイトル", width="large"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
-                        "表示用案件ID": st.column_config.Column("案件ID", width="small"),
+                        "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
                         "案件ID": None, 
                         "is_fp": None,
                     },
