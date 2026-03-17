@@ -1501,7 +1501,7 @@ elif current_tab == "⚙️ 管理者":
                     disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
                     column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                     column_config={
-                        "タイトル": st.column_config.Column("タイトル", width="large"),
+                        "タイトル": st.column_config.Column("タイトル", width="medium"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
                         "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
