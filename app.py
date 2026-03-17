@@ -157,6 +157,7 @@ def save_task_time(anken_id, time_str):
 
 ACTION_LOG_FILE = "action_logs.json"
 
+# ▼▼▼ 修正: 1時間で消えるフィルターを解除し、全件保存・取得するように変更 ▼▼▼
 def add_action_log(username, action, details=""):
     logs = []
     if os.path.exists(ACTION_LOG_FILE):
@@ -167,18 +168,8 @@ def add_action_log(username, action, details=""):
             pass
     
     now = pd.Timestamp.now(tz='Asia/Tokyo')
-    one_hour_ago = now - pd.Timedelta(hours=1)
     
-    valid_logs = []
-    for log in logs:
-        try:
-            log_time = pd.to_datetime(log["timestamp"])
-            if log_time >= one_hour_ago:
-                valid_logs.append(log)
-        except:
-            pass
-            
-    valid_logs.append({
+    logs.append({
         "timestamp": now.isoformat(),
         "user": username,
         "action": action,
@@ -187,7 +178,7 @@ def add_action_log(username, action, details=""):
     
     try:
         with open(ACTION_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(valid_logs, f, ensure_ascii=False, indent=2)
+            json.dump(logs, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -196,24 +187,19 @@ def get_action_logs():
         try:
             with open(ACTION_LOG_FILE, "r", encoding="utf-8") as f:
                 logs = json.load(f)
-                
-                now = pd.Timestamp.now(tz='Asia/Tokyo')
-                one_hour_ago = now - pd.Timedelta(hours=1)
-                
-                valid_logs = []
-                for log in logs:
-                    try:
-                        log_time = pd.to_datetime(log["timestamp"])
-                        if log_time >= one_hour_ago:
-                            valid_logs.append(log)
-                    except:
-                        pass
-                
-                valid_logs.sort(key=lambda x: x["timestamp"], reverse=True)
-                return valid_logs
+                logs.sort(key=lambda x: x["timestamp"], reverse=True)
+                return logs
         except Exception:
             pass
     return []
+
+def clear_action_logs():
+    if os.path.exists(ACTION_LOG_FILE):
+        try:
+            os.remove(ACTION_LOG_FILE)
+        except Exception:
+            pass
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
@@ -433,10 +419,13 @@ def reset_system():
         }
         try:
             safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
+            # ▼▼▼ 修正: リセット時に古いログを消去し、新しい日の最初のログとして記録 ▼▼▼
             clear_all_work_data()
+            clear_action_logs() 
+            add_action_log(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
             fetch_data.clear()
             st.rerun()
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         except Exception as e:
             st.error(f"リセットに失敗しました: {e}")
 
@@ -1101,7 +1090,39 @@ if current_tab == "👤 ユーザー":
                         st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
                         if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
                             update_status(task['anken_id'], "着手")
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    # ▼▼▼ 修正: UIの文言を「過去1時間」から「本日の」に変更 ▼▼▼
+    st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 1px #e2e8f0;'>", unsafe_allow_html=True)
+    with st.expander("📜 本日の自分の動作ログを確認する", expanded=False):
+        action_logs = get_action_logs()
+        # 自分自身のログだけを抽出
+        my_logs = [log for log in action_logs if log["user"] == st.session_state.selected_user]
+        
+        if not my_logs:
+            st.info("本日の間に記録された動作ログはありません。")
+        else:
+            log_data = []
+            for log in my_logs:
+                ts = pd.to_datetime(log["timestamp"]).strftime('%H:%M:%S')
+                log_data.append({
+                    "時間": ts,
+                    "アクション": log["action"],
+                    "詳細": log["details"]
+                })
+            
+            log_df = pd.DataFrame(log_data)
+            st.dataframe(
+                log_df,
+                use_container_width=True,
+                hide_index=True,
+                height=300,
+                column_config={
+                    "時間": st.column_config.Column("時間", width="small"),
+                    "アクション": st.column_config.Column("アクション", width="medium"),
+                    "詳細": st.column_config.Column("詳細", width="large"),
+                }
+            )
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 6. 管理者タブ
@@ -1569,12 +1590,13 @@ elif current_tab == "⚙️ 管理者":
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
 
+        # ▼▼▼ 修正: UIの文言を「過去1時間」から「本日の」に変更 ▼▼▼
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
-        st.markdown("<h4 style='color: #4a5568;'>📜 過去1時間のシステム動作ログ</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #4a5568;'>📜 本日のシステム動作ログ</h4>", unsafe_allow_html=True)
         
         action_logs = get_action_logs()
         if not action_logs:
-            st.info("過去1時間の間に記録された動作ログはありません。")
+            st.info("本日の間に記録された動作ログはありません。")
         else:
             log_data = []
             for log in action_logs:
@@ -1591,7 +1613,7 @@ elif current_tab == "⚙️ 管理者":
                 log_df,
                 use_container_width=True,
                 hide_index=True,
-                height=300,
+                height=400,
                 column_config={
                     "時間": st.column_config.Column("時間", width="small"),
                     "操作ユーザー": st.column_config.Column("操作ユーザー", width="small"),
@@ -1599,6 +1621,7 @@ elif current_tab == "⚙️ 管理者":
                     "詳細": st.column_config.Column("詳細", width="large"),
                 }
             )
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 7. 監査マニュアルタブ
