@@ -824,7 +824,8 @@ if current_tab == "👤 ユーザー":
                         (df['datetime'].dt.date == current_date) & 
                         (df['status'] == '未対応') &  
                         (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
-                        (df['product'] != 'JOBYmini')
+                        (df['product'] != 'JOBYmini') &
+                        (df['fukkatsu'] == False) # ▼▼▼ 追加: 復活音源は除外する ▼▼▼
                     ].copy()
                     
                     # ▼▼▼ 追加: ユーザーのスキル（商材・自営）に合致するタスクのみに絞り込む ▼▼▼
