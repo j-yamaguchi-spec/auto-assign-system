@@ -5,8 +5,8 @@ from datetime import datetime
 import time
 import json
 import os
-import streamlit.components.v1 as components 
-import html as html_lib 
+import streamlit.components.v1 as components
+import html as html_lib
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -157,7 +157,6 @@ def save_task_time(anken_id, time_str):
 
 ACTION_LOG_FILE = "action_logs.json"
 
-# ▼▼▼ 修正: 1時間で消えるフィルターを解除し、全件保存・取得するように変更 ▼▼▼
 def add_action_log(username, action, details=""):
     logs = []
     if os.path.exists(ACTION_LOG_FILE):
@@ -199,7 +198,6 @@ def clear_action_logs():
             os.remove(ACTION_LOG_FILE)
         except Exception:
             pass
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
@@ -292,11 +290,9 @@ def safe_api_post(payload, max_retries=3):
             
     raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
 
-# ▼▼▼ 新規追加: 読み込み(GET)専用の自動リトライ＆タイムアウト延長関数 ▼▼▼
 def safe_api_get(max_retries=3):
     for attempt in range(max_retries):
         try:
-            # タイムアウトを 30秒 から 45秒 に延長
             response = requests.get(GAS_URL, timeout=45)
             if response.status_code == 200:
                 try:
@@ -318,12 +314,10 @@ def safe_api_get(max_retries=3):
             continue
             
     raise Exception("システムが非常に混み合っています。")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 @st.cache_data(ttl=60) 
 def fetch_data():
     try:
-        # ▼ 修正: requests.get(...) を safe_api_get() に置き換え ▼
         data = safe_api_get()
         fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
         
@@ -362,7 +356,6 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-# ▼▼▼ 修正1: 引数に original_assign を追加し、ペイロードに含める ▼▼▼
 def update_assign(anken_id, assigned, check_unassigned=False, original_assign=None):
     with st.spinner('担当者を更新し、裏側で再計算しています...'):
         payload = {
@@ -379,7 +372,6 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_settings(past_days, future_days):
     with st.spinner('設定を保存中...'):
@@ -423,13 +415,11 @@ def reset_system():
         }
         try:
             safe_api_post(payload)
-            # ▼▼▼ 修正: リセット時に古いログを消去し、新しい日の最初のログとして記録 ▼▼▼
             clear_all_work_data()
             clear_action_logs() 
             add_action_log(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
             fetch_data.clear()
             st.rerun()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         except Exception as e:
             st.error(f"リセットに失敗しました: {e}")
 
@@ -485,7 +475,6 @@ if not df.empty:
     elif 'fukkatsu' not in df.columns:
         df['fukkatsu'] = False
 
-# ▼▼▼ 新規追加: 監視アラートシステム（未割当タスク検知） ▼▼▼
 unassigned_alert_tasks = pd.DataFrame()
 if not df.empty:
     unassigned_alert_tasks = df[
@@ -496,7 +485,6 @@ if not df.empty:
 
 if not unassigned_alert_tasks.empty:
     st.error(f"🚨 **【緊急】担当者が空欄のまま漏れている待機タスクが {len(unassigned_alert_tasks)} 件あります！** \n自動振り分けが不可能な状態です（出社メンバーが0人か、該当スキルの保持者が不在）。\nページ下部の「緊急タスクリスト」から手動で拾うか、管理者画面で出社/スキル状況を見直してください。")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 with header_container:
     st.markdown('<div id="sticky-header-anchor"></div>', unsafe_allow_html=True)
@@ -806,9 +794,7 @@ if current_tab == "👤 ユーザー":
         else:
             target_end_date = today_date + pd.Timedelta(days=1)
         
-        # ▼▼▼ 修正: 「中断」しかない日は空きと判定するため、条件から '中断' を除外 ▼▼▼
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         current_date = today_date
         has_any_displayed = False
@@ -819,16 +805,14 @@ if current_tab == "👤 ユーザー":
             if my_active_for_date.empty:
                 other_target_tasks = pd.DataFrame()
                 if not df.empty:
-                    # まず基本的な条件で抽出
                     base_other_tasks = df[
                         (df['datetime'].dt.date == current_date) & 
                         (df['status'] == '未対応') &  
                         (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                         (df['product'] != 'JOBYmini') &
-                        (df['fukkatsu'] == False) # ▼▼▼ 追加: 復活音源は除外する ▼▼▼
+                        (df['fukkatsu'] == False)
                     ].copy()
                     
-                    # ▼▼▼ 追加: ユーザーのスキル（商材・自営）に合致するタスクのみに絞り込む ▼▼▼
                     if not base_other_tasks.empty:
                         user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
                         if user_skills:
@@ -836,15 +820,12 @@ if current_tab == "👤 ユーザー":
                                 title = str(row['title'])
                                 product = str(row['product'])
                                 
-                                # 自営スキルの判定
                                 if '/自' in title and not user_skills.get('jiei', False):
                                     return False
-                                # 各商材スキルの判定
                                 if product == 'イツザイ' and not user_skills.get('itsuzai', False):
                                     return False
                                 if product == 'エージェント' and not user_skills.get('agent', False):
                                     return False
-                                # イツザイ・エージェント・JOBYmini以外はすべて「集客」として判定
                                 if product not in ['イツザイ', 'エージェント', 'JOBYmini'] and not user_skills.get('shukyaku', False):
                                     return False
                                 return True
@@ -853,7 +834,6 @@ if current_tab == "👤 ユーザー":
                             other_target_tasks = base_other_tasks[mask].sort_values('datetime')
                         else:
                             other_target_tasks = base_other_tasks.sort_values('datetime')
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     
                 if not other_target_tasks.empty:
                     has_any_displayed = True
@@ -879,13 +859,11 @@ if current_tab == "👤 ユーザー":
                             with c_info:
                                 st.markdown(f"<div style='font-size: 0.85em; color: #4a5568; margin-top: 6px;'>🕒 {t_time} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; ⏳ {duration_m} 分 &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🏷️ {product_str} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🆔 {disp_id}</div>", unsafe_allow_html=True)
                             with c_btn:
-                                # ▼▼▼ 修正2: 「🙋 取得」ボタンを押した際、その時点での担当者情報を一緒に送る ▼▼▼
                                 orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
                                 if orig_assign in ["None", "NaN", "未割当"]:
                                     orig_assign = ""
                                 if st.button("🙋 取得", key=f"take_other_{t['anken_id']}", use_container_width=True, help="このタスクを自分の担当にします"):
                                     update_assign(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
-                                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                             
                             if idx < len(other_target_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
@@ -927,10 +905,9 @@ if current_tab == "👤 ユーザー":
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
-                    # ▼▼▼ 修正3: 「🙋 私が担当する(緊急)」ボタンは完全に空欄なので original_assign="" を送る ▼▼▼
                     if st.button("🙋 私が担当する", key=f"sos_assign_{task['anken_id']}", type="primary", use_container_width=True):
                         update_assign(task['anken_id'], st.session_state.selected_user, original_assign="")
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+    
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
     active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
@@ -1128,7 +1105,6 @@ if current_tab == "👤 ユーザー":
                     
                     st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                     
-                    # ▼▼▼ 修正: 「着手へ戻す」ボタンを配置するため、カラムを2つから3つに分割 ▼▼▼
                     col_id, col_phone, col_action = st.columns([2, 2, 1.2])
                     with col_id:
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
@@ -1140,16 +1116,13 @@ if current_tab == "👤 ユーザー":
                             st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>📞 連絡先電話番号</div>", unsafe_allow_html=True)
                             st.code(phone_str, language="text")
                     with col_action:
-                        # ボタンの高さを揃えるための透明なテキスト
                         st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
                         if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
                             update_status(task['anken_id'], "着手")
 
-    # ▼▼▼ 修正: UIの文言を「過去1時間」から「本日の」に変更 ▼▼▼
     st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 1px #e2e8f0;'>", unsafe_allow_html=True)
     with st.expander("📜 本日の自分の動作ログを確認する", expanded=False):
         action_logs = get_action_logs()
-        # 自分自身のログだけを抽出
         my_logs = [log for log in action_logs if log["user"] == st.session_state.selected_user]
         
         if not my_logs:
@@ -1176,7 +1149,6 @@ if current_tab == "👤 ユーザー":
                     "詳細": st.column_config.Column("詳細", width="large"),
                 }
             )
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 6. 管理者タブ
@@ -1184,10 +1156,15 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
+    # ▼▼▼ 追加: 自動更新のON/OFFトグルスイッチ ▼▼▼
+    is_auto_refresh = st.toggle("🔄 60秒ごとの自動更新", value=True, help="オフにすると自動で画面がリロードされなくなります")
+    
     if HAS_AUTOREFRESH:
-        st_autorefresh(interval=60000, key="admin_autorefresh")
+        if is_auto_refresh:
+            st_autorefresh(interval=60000, limit=None, key="admin_autorefresh")
     else:
         st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -1548,9 +1525,7 @@ elif current_tab == "⚙️ 管理者":
                         "タイトル": st.column_config.Column("タイトル", width="large"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
-                        # ▼▼▼ 修正1: width="small" を width="medium" に変更 ▼▼▼
                         "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
-                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "案件ID": None, 
                         "is_fp": None,
                     },
@@ -1575,9 +1550,7 @@ elif current_tab == "⚙️ 管理者":
                         "タイトル": st.column_config.Column("タイトル", width="large"),
                         "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                         "ステータス": st.column_config.Column("ステータス", width="small"),
-                        # ▼▼▼ 修正2: width="small" を width="medium" に変更 ▼▼▼
                         "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
-                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "案件ID": None, 
                         "is_fp": None,
                     },
@@ -1606,9 +1579,7 @@ elif current_tab == "⚙️ 管理者":
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
                     "開始時間": st.column_config.Column("開始時間", width="small"),
-                    # ▼▼▼ 修正3: width="small" を width="medium" に変更 ▼▼▼
                     "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     "案件ID": None, 
                 },
                 key="admin_inprogress_data_editor"
@@ -1635,9 +1606,7 @@ elif current_tab == "⚙️ 管理者":
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.Column("担当者", width="small"),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
-                    # ▼▼▼ 修正4: width="small" を width="medium" に変更 ▼▼▼
                     "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     "案件ID": None, 
                     "is_fp": None,
                 }
@@ -1647,12 +1616,11 @@ elif current_tab == "⚙️ 管理者":
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
         
         with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
-            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手 manualで変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
+            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     reset_system()
 
-        # ▼▼▼ 修正: UIの文言を「過去1時間」から「本日の」に変更 ▼▼▼
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>📜 本日のシステム動作ログ</h4>", unsafe_allow_html=True)
         
@@ -1683,7 +1651,6 @@ elif current_tab == "⚙️ 管理者":
                     "詳細": st.column_config.Column("詳細", width="large"),
                 }
             )
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 7. 監査マニュアルタブ
