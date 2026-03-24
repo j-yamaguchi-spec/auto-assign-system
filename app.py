@@ -579,18 +579,29 @@ if current_tab == "👤 ユーザー":
     
     # ▼▼▼ 新規追加: 5分放置で自動的に出るポップアップコンポーネント ▼▼▼
     components.html("""
-        <div id="timeout-overlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:999999; justify-content:center; align-items:center; font-family:sans-serif;">
-            <div style="background:white; padding:30px; border-radius:12px; text-align:center; max-width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
-                <h2 style="color:#e53e3e; margin-top:0; margin-bottom:15px; font-size:22px;">⚠️ 画面の更新が必要です</h2>
-                <p style="color:#4a5568; font-size:15px; margin-bottom:10px; line-height:1.5;">5分以上操作がなかったため、データが古くなっている可能性があります。</p>
-                <p style="color:#718096; font-size:13px; margin-bottom:25px;">タスクの重複取得（バッティング）を防ぐため、画面を最新状態に更新してください。</p>
-                <button onclick="window.parent.location.reload()" style="padding:14px 28px; background:#3182ce; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 2px 4px rgba(49,130,206,0.3);">🔄 画面を更新する</button>
-            </div>
-        </div>
         <script>
-            // 画面が再描画されるたびにタイマーがリセットされる（300,000ms = 5分）
+            // 5分(300,000ミリ秒)後に親画面(Streamlit全体)にポップアップを強制生成する
             setTimeout(function() {
-                document.getElementById('timeout-overlay').style.display = 'flex';
+                // すでに表示されていれば重複して作らない
+                if(window.parent.document.getElementById('timeout-overlay-custom')) return;
+                
+                // 親画面に直接div要素を作成
+                const overlay = window.parent.document.createElement('div');
+                overlay.id = 'timeout-overlay-custom';
+                // 画面全体を覆うスタイルを設定 (最前面にするため z-index を極端に高くする)
+                overlay.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:9999999; display:flex; justify-content:center; align-items:center; font-family:sans-serif; backdrop-filter:blur(3px);';
+                
+                // ポップアップの中身
+                overlay.innerHTML = `
+                    <div style="background:white; padding:30px; border-radius:12px; text-align:center; max-width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+                        <h2 style="color:#e53e3e; margin-top:0; margin-bottom:15px; font-size:22px; font-weight:bold;">⚠️ 画面の更新が必要です</h2>
+                        <p style="color:#4a5568; font-size:15px; margin-bottom:10px; line-height:1.5;">5分以上操作がなかったため、データが古くなっている可能性があります。</p>
+                        <p style="color:#718096; font-size:13px; margin-bottom:25px;">タスクの重複取得（バッティング）を防ぐため、画面を最新状態に更新してください。</p>
+                        <button onclick="window.location.reload()" style="padding:14px 28px; background:#3182ce; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 2px 4px rgba(49,130,206,0.3);">🔄 画面を更新する</button>
+                    </div>
+                `;
+                // 親画面の body の一番最後に強制追加
+                window.parent.document.body.appendChild(overlay);
             }, 300000); 
         </script>
     """, height=0)
