@@ -336,17 +336,24 @@ def fetch_data():
         st.error(f"データ取得エラー: {e}")
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
-def update_status(anken_id, new_status, fukkatsu_min=""):
+# ▼▼▼ 修正1: expected_assign, expected_status を引数に追加し、GASへ送信 ▼▼▼
+def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, expected_status=None):
     with st.spinner('ステータスを更新し、裏側で再計算しています...'):
         if new_status == "着手":
             now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
             save_task_time(anken_id, now_str)
         
+        # エラー防止のためNaNを空文字に変換
+        if pd.isna(expected_assign): expected_assign = ""
+        if pd.isna(expected_status): expected_status = ""
+        
         payload = {
             "action": "update_status",
             "anken_id": anken_id,
             "status": new_status,
-            "fukkatsu_min": fukkatsu_min
+            "fukkatsu_min": fukkatsu_min,
+            "expected_assign": str(expected_assign),
+            "expected_status": str(expected_status)
         }
         try:
             safe_api_post(payload) 
@@ -355,6 +362,7 @@ def update_status(anken_id, new_status, fukkatsu_min=""):
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_assign(anken_id, assigned, check_unassigned=False, original_assign=None):
     with st.spinner('担当者を更新し、裏側で再計算しています...'):
@@ -568,6 +576,25 @@ today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 
 if current_tab == "👤 ユーザー":
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
+    
+    # ▼▼▼ 新規追加: 5分放置で自動的に出るポップアップコンポーネント ▼▼▼
+    components.html("""
+        <div id="timeout-overlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:999999; justify-content:center; align-items:center; font-family:sans-serif;">
+            <div style="background:white; padding:30px; border-radius:12px; text-align:center; max-width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+                <h2 style="color:#e53e3e; margin-top:0; margin-bottom:15px; font-size:22px;">⚠️ 画面の更新が必要です</h2>
+                <p style="color:#4a5568; font-size:15px; margin-bottom:10px; line-height:1.5;">5分以上操作がなかったため、データが古くなっている可能性があります。</p>
+                <p style="color:#718096; font-size:13px; margin-bottom:25px;">タスクの重複取得（バッティング）を防ぐため、画面を最新状態に更新してください。</p>
+                <button onclick="window.parent.location.reload()" style="padding:14px 28px; background:#3182ce; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 2px 4px rgba(49,130,206,0.3);">🔄 画面を更新する</button>
+            </div>
+        </div>
+        <script>
+            // 画面が再描画されるたびにタイマーがリセットされる（300,000ms = 5分）
+            setTimeout(function() {
+                document.getElementById('timeout-overlay').style.display = 'flex';
+            }, 300000); 
+        </script>
+    """, height=0)
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     my_tasks = pd.DataFrame()
     if not df.empty:
@@ -953,14 +980,17 @@ if current_tab == "👤 ユーザー":
             
             act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
             with act_col1:
+                # ▼ 修正2: 着手中の「完了」ボタンに期待値を含める ▼
                 if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", use_container_width=True):
-                    update_status(task['anken_id'], "完了", fukkatsu_input)
+                    update_status(task['anken_id'], "完了", fukkatsu_input, expected_assign=task['assigned'], expected_status=task['status'])
             with act_col2:
+                # ▼ 修正3: 着手中の「中断」ボタンに期待値を含める ▼
                 if st.button("⏸️ 中断", key=f"pause_{task['anken_id']}", use_container_width=True):
-                    update_status(task['anken_id'], "中断")
+                    update_status(task['anken_id'], "中断", expected_assign=task['assigned'], expected_status=task['status'])
             with act_col3:
+                # ▼ 修正4: 着手中の「取消」ボタンに期待値を含める ▼
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
-                    update_status(task['anken_id'], "未対応")
+                    update_status(task['anken_id'], "未対応", expected_assign=task['assigned'], expected_status=task['status'])
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
 
@@ -1007,8 +1037,9 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
+                    # ▼ 修正5: 中断中の「再開する」ボタンに期待値を含める ▼
                     if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
-                        update_status(task['anken_id'], "着手")
+                        update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     # --- 下段: 待機中のタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
@@ -1062,8 +1093,9 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
+                    # ▼ 修正6: 待機中の「着手する」ボタンに期待値を含める ▼
                     if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
-                        update_status(task['anken_id'], "着手")
+                        update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     # --- 最下段: 完了済みのタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 25px; color: #4a5568; font-weight: bold;'>✅ 本日の完了タスク</div>", unsafe_allow_html=True)
@@ -1117,8 +1149,9 @@ if current_tab == "👤 ユーザー":
                             st.code(phone_str, language="text")
                     with col_action:
                         st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                        # ▼ 修正7: 完了済みの「着手へ戻す」ボタンに期待値を含める ▼
                         if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
-                            update_status(task['anken_id'], "着手")
+                            update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 1px #e2e8f0;'>", unsafe_allow_html=True)
     with st.expander("📜 本日の自分の動作ログを確認する", expanded=False):
