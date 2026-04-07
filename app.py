@@ -734,6 +734,99 @@ if current_tab == "👤 ユーザー":
                             """, unsafe_allow_html=True)
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
+    # ▼▼▼ 復活: 誤って削除してしまった右カラム(完了実績・キャンセルログ)のコード ▼▼▼
+    with col_right:
+        st.markdown(f"""
+        <div class="custom-card" style="border-left-color: #38b2ac; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; padding-top: 5px;">
+                <div style="width: 48%;">
+                    <div style="color:#2c5282; font-weight: bold; margin-bottom: 5px;">📈 今日の実績 (代筆完了)</div>
+                    <div style="margin-top: 8px;">
+                        <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{comp_count_normal}</span> <span style="font-size:0.8em; color: #4a5568;">件</span>
+                        <span style="margin: 0 8px; color: #cbd5e0;">|</span>
+                        <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{int(comp_min_normal)}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
+                    </div>
+                </div>
+                <div style="width: 48%;">
+                    <div style="color:#553c9a; font-weight: bold; margin-bottom: 5px;">🔊 復活音源実績</div>
+                    <div style="margin-top: 8px;">
+                        <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{comp_count_fukkatsu}</span> <span style="font-size:0.8em; color: #4a5568;">件</span>
+                        <span style="margin: 0 8px; color: #cbd5e0;">|</span>
+                        <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{int(comp_min_fukkatsu)}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        cancel_logs = user_data["cancel_logs"]
+        cancel_total_min = user_data["cancel_total_min"]
+        cancel_count = user_data["cancel_count"]
+        c_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in cancel_logs[-3:]])
+        
+        with st.container(border=True):
+            st.markdown(f"""
+            <div style="border-left: 4px solid #ed8936; padding-left: 12px; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="width: 50%;">
+                        <div style="color:#dd6b20; font-weight: bold; margin-bottom: 5px;">🚫 代筆中キャンセル</div>
+                        <div>
+                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_count}</span> <span style="font-size:0.8em; color: #4a5568;">件</span>
+                            <span style="margin: 0 8px; color: #cbd5e0;">|</span>
+                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_total_min}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
+                        </div>
+                    </div>
+                    <div style="width: 50%; text-align: right;">
+                        <strong style="color: #4a5568; font-size: 0.8em;">追加履歴:</strong>
+                        <ul style="margin: 0; padding-left: 0; list-style-type: none; font-size: 0.8em; color: #718096;">
+                            {c_logs_html if c_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c_col1, c_col2, c_col3 = st.columns([1.5, 2, 1])
+            with c_col1:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>分数</div>", unsafe_allow_html=True)
+                input_c_min = st.number_input("分数", min_value=1, max_value=180, value=10, key="input_c_min", label_visibility="collapsed")
+            with c_col2:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>メモ(任意)</div>", unsafe_allow_html=True)
+                input_c_memo = st.text_input("メモ", placeholder="案件IDなど", key="input_c_memo", label_visibility="collapsed")
+            with c_col3:
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                if st.button("追加", key="add_cancel_btn", use_container_width=True):
+                    now_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime('%H:%M')
+                    memo_str = f" ({input_c_memo})" if input_c_memo else ""
+                    new_log = f"{now_time} - {input_c_min}分{memo_str}"
+                    
+                    new_logs = cancel_logs.copy()
+                    new_logs.append(new_log)
+                    new_count = cancel_count + 1
+                    new_total_min = cancel_total_min + input_c_min
+                    
+                    save_user_work_data(
+                        st.session_state.selected_user, 
+                        current_status, 
+                        other_work_logs, 
+                        other_work_total_min, 
+                        other_work_start_time,
+                        cancel_logs=new_logs,
+                        cancel_total_min=new_total_min,
+                        cancel_count=new_count
+                    )
+                    add_action_log(st.session_state.selected_user, "代筆中キャンセル追加", f"{input_c_min}分 {memo_str}")
+                    st.rerun()
+
+            st.markdown("""
+            <div style='margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; text-align: right;'>
+                <a href='https://231707ee.form.kintoneapp.com/public/surrender' target='_blank' rel='noopener noreferrer' style='color: #2b6cb0; text-decoration: none; font-size: 0.85em; font-weight: bold;'>
+                    📝 代筆中キャンセル登録フォーム
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
         
