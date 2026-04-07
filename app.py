@@ -1233,6 +1233,11 @@ elif current_tab == "⚙️ 管理者":
             
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
             
+            # ▼▼▼ 追加: 除外設定がONなら、抽出結果から自営タスクを隠す ▼▼▼
+            if api_settings.get("exclude_jiei", False):
+                filtered_df = filtered_df[~filtered_df['title'].astype(str).str.contains('/自', na=False)].copy()
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
             else:
