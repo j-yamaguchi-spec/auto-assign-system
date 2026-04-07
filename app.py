@@ -326,7 +326,7 @@ def fetch_data():
             df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
         
         members = data.get("members", [])
-        api_settings = data.get("settings", {"past_days": 7, "future_days": 30})
+        api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False})
         members_data = data.get("membersData", [])
         api_manual_data = data.get("manualData", [])
         api_fastpass_ids = data.get("fastpassIds", [])
@@ -334,9 +334,8 @@ def fetch_data():
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
-# ▼▼▼ 修正1: expected_assign, expected_status を引数に追加し、GASへ送信 ▼▼▼
 def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, expected_status=None):
     with st.spinner('ステータスを更新し、裏側で再計算しています...'):
         if new_status == "着手":
@@ -362,7 +361,6 @@ def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, e
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_assign(anken_id, assigned, check_unassigned=False, original_assign=None):
     with st.spinner('担当者を更新し、裏側で再計算しています...'):
@@ -381,16 +379,17 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-def update_settings(past_days, future_days):
+def update_settings(past_days, future_days, exclude_jiei):
     with st.spinner('設定を保存中...'):
         payload = {
             "action": "update_settings",
             "past_days": past_days,
-            "future_days": future_days
+            "future_days": future_days,
+            "exclude_jiei": exclude_jiei
         }
         try:
             safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "カレンダー設定変更", f"過去{past_days}日 / 未来{future_days}日 に変更")
+            add_action_log(st.session_state.selected_user, "設定変更", f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -485,11 +484,15 @@ if not df.empty:
 
 unassigned_alert_tasks = pd.DataFrame()
 if not df.empty:
-    unassigned_alert_tasks = df[
+    alert_condition = (
         (df['status'] == '未対応') & 
         (df['product'] != 'JOBYmini') & 
         (df['assigned'].fillna('').astype(str).str.strip().isin(['', 'None', 'NaN', '未割当']))
-    ].sort_values('datetime')
+    )
+    if api_settings.get("exclude_jiei", False):
+        alert_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
+        
+    unassigned_alert_tasks = df[alert_condition].sort_values('datetime')
 
 if not unassigned_alert_tasks.empty:
     st.error(f"🚨 **【緊急】担当者が空欄のまま漏れている待機タスクが {len(unassigned_alert_tasks)} 件あります！** \n自動振り分けが不可能な状態です（出社メンバーが0人か、該当スキルの保持者が不在）。\nページ下部の「緊急タスクリスト」から手動で拾うか、管理者画面で出社/スキル状況を見直してください。")
@@ -813,13 +816,17 @@ if current_tab == "👤 ユーザー":
             if my_active_for_date.empty:
                 other_target_tasks = pd.DataFrame()
                 if not df.empty:
-                    base_other_tasks = df[
+                    base_other_condition = (
                         (df['datetime'].dt.date == current_date) & 
                         (df['status'] == '未対応') &  
                         (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
                         (df['product'] != 'JOBYmini') &
                         (df['fukkatsu'] == False)
-                    ].copy()
+                    )
+                    if api_settings.get("exclude_jiei", False):
+                        base_other_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
+                        
+                    base_other_tasks = df[base_other_condition].copy()
                     
                     if not base_other_tasks.empty:
                         user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
@@ -961,15 +968,12 @@ if current_tab == "👤 ユーザー":
             
             act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
             with act_col1:
-                # ▼ 修正2: 着手中の「完了」ボタンに期待値を含める ▼
                 if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", use_container_width=True):
                     update_status(task['anken_id'], "完了", fukkatsu_input, expected_assign=task['assigned'], expected_status=task['status'])
             with act_col2:
-                # ▼ 修正3: 着手中の「中断」ボタンに期待値を含める ▼
                 if st.button("⏸️ 中断", key=f"pause_{task['anken_id']}", use_container_width=True):
                     update_status(task['anken_id'], "中断", expected_assign=task['assigned'], expected_status=task['status'])
             with act_col3:
-                # ▼ 修正4: 着手中の「取消」ボタンに期待値を含める ▼
                 if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
                     update_status(task['anken_id'], "未対応", expected_assign=task['assigned'], expected_status=task['status'])
     else:
@@ -1018,7 +1022,6 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
-                    # ▼ 修正5: 中断中の「再開する」ボタンに期待値を含める ▼
                     if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
                         update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
@@ -1074,7 +1077,6 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
-                    # ▼ 修正6: 待機中の「着手する」ボタンに期待値を含める ▼
                     if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
                         update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
@@ -1130,7 +1132,6 @@ if current_tab == "👤 ユーザー":
                             st.code(phone_str, language="text")
                     with col_action:
                         st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
-                        # ▼ 修正7: 完了済みの「着手へ戻す」ボタンに期待値を含める ▼
                         if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
                             update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
@@ -1164,7 +1165,6 @@ if current_tab == "👤 ユーザー":
                 }
             )
 
-    # ▼▼▼ 修正: 5分放置ポップアップを「出社中」かつ「待機中(着手タスクなし)」の時だけ出すように移動＆条件追加 ▼▼▼
     if current_status == "出社" and active_tasks.empty:
         components.html("""
             <script>
@@ -1193,7 +1193,6 @@ if current_tab == "👤 ユーザー":
                 }, 300000); 
             </script>
         """, height=0)
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 # ==========================================
 # 6. 管理者タブ
@@ -1201,7 +1200,6 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
-    # ▼▼▼ 追加: 自動更新のON/OFFトグルスイッチ ▼▼▼
     is_auto_refresh = st.toggle("🔄 60秒ごとの自動更新", value=True, help="オフにすると自動で画面がリロードされなくなります")
     
     if HAS_AUTOREFRESH:
@@ -1209,7 +1207,6 @@ elif current_tab == "⚙️ 管理者":
             st_autorefresh(interval=60000, limit=None, key="admin_autorefresh")
     else:
         st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -1256,14 +1253,17 @@ elif current_tab == "⚙️ 管理者":
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             st.markdown("<h5 style='color: #4a5568;'>⚙️ カレンダー取得範囲設定</h5>", unsafe_allow_html=True)
             
-            col_s1, col_s2 = st.columns(2)
+            col_s1, col_s2, col_s3 = st.columns([1, 1, 1.5])
             with col_s1:
                 past_days = st.number_input("開始(過去〇日)", min_value=0, max_value=365, value=api_settings.get("past_days", 7))
             with col_s2:
                 future_days = st.number_input("終了(未来〇日)", min_value=0, max_value=365, value=api_settings.get("future_days", 30))
+            with col_s3:
+                st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>除外フィルタ</div>", unsafe_allow_html=True)
+                exclude_jiei = st.toggle("🚫 自営タスク一括除外", value=api_settings.get("exclude_jiei", False), help="ONにすると、タイトルに「/自」が含まれるタスクは自動振り分けや各待機リストから完全に消去（無視）されます")
             
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
-                update_settings(past_days, future_days)
+                update_settings(past_days, future_days, exclude_jiei)
 
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
@@ -1534,6 +1534,9 @@ elif current_tab == "⚙️ 管理者":
         in_progress_cases_df = in_progress_cases_df[in_progress_cols]
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
+        if api_settings.get("exclude_jiei", False):
+            waiting_cases_df = waiting_cases_df[~waiting_cases_df['タイトル'].astype(str).str.contains('/自', na=False)].copy()
+            
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
         waiting_cases_df = waiting_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
