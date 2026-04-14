@@ -469,11 +469,14 @@ def handle_refresh():
 header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, fetch_time = fetch_data()
 
-min_unassigned_date = None
-if not df.empty:
-    unassigned_df = df[df['status'] == '未対応']
-    if not unassigned_df.empty:
-        min_unassigned_date = unassigned_df['datetime'].dt.date.min()
+# ▼▼▼ 修正: ファストパスの表示上限日を「一番古い未対応タスク」から「設定された対象日付」に変更 ▼▼▼
+sys_settings_for_fp = get_system_settings()
+saved_target_date_for_fp = sys_settings_for_fp.get("target_date")
+if saved_target_date_for_fp:
+    fp_limit_date = pd.to_datetime(saved_target_date_for_fp).date()
+else:
+    fp_limit_date = pd.Timestamp.now(tz='Asia/Tokyo').date()
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
@@ -1066,7 +1069,9 @@ if current_tab == "👤 ユーザー":
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
-        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
+        # ▼▼▼ 修正: ファストパス判定に fp_limit_date を使用 ▼▼▼
+        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
         
         for idx, task in waiting_tasks.iterrows():
@@ -1539,7 +1544,9 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (min_unassigned_date is None or r['datetime'].date() <= min_unassigned_date), axis=1)
+        # ▼▼▼ 修正: ファストパス判定に fp_limit_date を使用 ▼▼▼
+        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
