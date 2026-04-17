@@ -1423,6 +1423,10 @@ elif current_tab == "⚙️ 管理者":
                 if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0): continue
                 if u not in clean_users: clean_users.append(u)
             
+            # ▼▼▼ 追加: 計算用の現在時刻を取得 ▼▼▼
+            now_for_calc = pd.Timestamp.now(tz='Asia/Tokyo')
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
             for user in clean_users:
                 user_df = df[df['assigned'].fillna('未割当') == user] if not df.empty else pd.DataFrame()
                 
@@ -1442,6 +1446,25 @@ elif current_tab == "⚙️ 管理者":
                 break_min = user_work_data["break_total_min"] 
                 user_status = user_work_data["current_status"]
                 
+                # ▼▼▼ 修正: 進行中の経過時間をリアルタイムに計算する処理を追加 ▼▼▼
+                b_start = user_work_data.get("break_start_time")
+                o_start = user_work_data.get("other_work_start_time")
+                
+                ongoing_break = 0
+                if user_status == "休憩中" and pd.notna(b_start):
+                    if b_start.tzinfo is None: b_start = b_start.tz_localize('Asia/Tokyo')
+                    ongoing_break = int((now_for_calc - b_start).total_seconds() / 60)
+                    
+                ongoing_other = 0
+                if user_status == "別業務中" and pd.notna(o_start):
+                    if o_start.tzinfo is None: o_start = o_start.tz_localize('Asia/Tokyo')
+                    ongoing_other = int((now_for_calc - o_start).total_seconds() / 60)
+                
+                # 表示用テキストの作成（INの時は進行中の分数も併記する）
+                break_display = f"{break_min + ongoing_break} 分 (進行中:+{ongoing_break}分)" if ongoing_break > 0 else f"{break_min} 分"
+                other_display = f"{other_work_min + ongoing_other} 分 (進行中:+{ongoing_other}分)" if ongoing_other > 0 else f"{other_work_min} 分"
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                
                 current_action = active_dict.get(user)
                 if current_action:
                     display_action = f"対応: {current_action}"
@@ -1456,8 +1479,8 @@ elif current_tab == "⚙️ 管理者":
                     "完了": comp_count,
                     "完了分数": int(comp_min),
                     "復活音源件数": fukkatsu_count,
-                    "別業務時間": other_work_min,
-                    "休憩時間": break_min, 
+                    "別業務時間": other_display, # ← 変数を変更しました
+                    "休憩時間": break_display,   # ← 変数を変更しました
                     "現在の作業": display_action
                 })
                 
@@ -1476,8 +1499,10 @@ elif current_tab == "⚙️ 管理者":
                         "完了": st.column_config.NumberColumn("完了", format="%d", width="small"),
                         "完了分数": st.column_config.NumberColumn("完了分数", format="%d 分", width="small"),
                         "復活音源件数": st.column_config.NumberColumn("復活音源", format="%d", width="small"),
-                        "別業務時間": st.column_config.NumberColumn("別業務", format="%d 分", width="small"),
-                        "休憩時間": st.column_config.NumberColumn("休憩", format="%d 分", width="small"), 
+                        # ▼▼▼ 修正: 数値専用カラムから、テキスト用カラムに変更し、横幅を広げました ▼▼▼
+                        "別業務時間": st.column_config.Column("別業務", width="medium"),
+                        "休憩時間": st.column_config.Column("休憩", width="medium"), 
+                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "現在の作業": st.column_config.Column("現在の作業", width="medium"),
                     }
                 )
