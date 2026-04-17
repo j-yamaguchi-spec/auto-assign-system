@@ -1460,9 +1460,9 @@ elif current_tab == "⚙️ 管理者":
                     if o_start.tzinfo is None: o_start = o_start.tz_localize('Asia/Tokyo')
                     ongoing_other = int((now_for_calc - o_start).total_seconds() / 60)
                 
-                # 表示用テキストの作成（INの時は進行中の分数も併記する）
-                break_display = f"{break_min + ongoing_break} 分 (進行中:+{ongoing_break}分)" if ongoing_break > 0 else f"{break_min} 分"
-                other_display = f"{other_work_min + ongoing_other} 分 (進行中:+{ongoing_other}分)" if ongoing_other > 0 else f"{other_work_min} 分"
+                # 表示用テキストの作成（確定分と進行中の合計のみ表示）
+                break_display = f"{break_min + ongoing_break} 分"
+                other_display = f"{other_work_min + ongoing_other} 分"
                 # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 current_action = active_dict.get(user)
