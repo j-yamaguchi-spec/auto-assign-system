@@ -1500,8 +1500,8 @@ elif current_tab == "⚙️ 管理者":
                         "完了分数": st.column_config.NumberColumn("完了分数", format="%d 分", width="small"),
                         "復活音源件数": st.column_config.NumberColumn("復活音源", format="%d", width="small"),
                         # ▼▼▼ 修正: 数値専用カラムから、テキスト用カラムに変更し、横幅を広げました ▼▼▼
-                        "別業務時間": st.column_config.Column("別業務", width="medium"),
-                        "休憩時間": st.column_config.Column("休憩", width="medium"), 
+                        "別業務時間": st.column_config.Column("別業務", width="small"),
+                        "休憩時間": st.column_config.Column("休憩", width="small"), 
                         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         "現在の作業": st.column_config.Column("現在の作業", width="medium"),
                     }
