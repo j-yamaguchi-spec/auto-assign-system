@@ -849,54 +849,48 @@ if current_tab == "👤 ユーザー":
         while current_date <= target_end_date:
             my_active_for_date = my_active_tasks[my_active_tasks['datetime'].dt.date == current_date]
             
-            # ▼▼▼ 修正: "if my_active_for_date.empty:" を外し、インデントを左に寄せて常に抽出を行う ▼▼▼
-            other_target_tasks = pd.DataFrame()
-            if not df.empty:
-                base_other_condition = (
-                    (df['datetime'].dt.date == current_date) & 
-                    (df['status'] == '未対応') &  
-                    (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
-                    (df['product'] != 'JOBYmini') &
-                    (df['fukkatsu'] == False)
-                )
-                if api_settings.get("exclude_jiei", False):
-                    base_other_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
-                    
-                base_other_tasks = df[base_other_condition].copy()
-                
-                if not base_other_tasks.empty:
-                    user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
-                    if user_skills:
-                        def check_skill(row):
-                            title = str(row['title'])
-                            product = str(row['product'])
-                            
-                            if '/自' in title and not user_skills.get('jiei', False):
-                                return False
-                            if product == 'イツザイ' and not user_skills.get('itsuzai', False):
-                                return False
-                            if product == 'エージェント' and not user_skills.get('agent', False):
-                                return False
-                            if product not in ['イツザイ', 'エージェント', 'JOBYmini'] and not user_skills.get('shukyaku', False):
-                                return False
-                            return True
+            if my_active_for_date.empty:
+                other_target_tasks = pd.DataFrame()
+                if not df.empty:
+                    base_other_condition = (
+                        (df['datetime'].dt.date == current_date) & 
+                        (df['status'] == '未対応') &  
+                        (df['assigned'].fillna('未割当') != st.session_state.selected_user) &
+                        (df['product'] != 'JOBYmini') &
+                        (df['fukkatsu'] == False)
+                    )
+                    if api_settings.get("exclude_jiei", False):
+                        base_other_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
                         
-                        mask = base_other_tasks.apply(check_skill, axis=1)
-                        other_target_tasks = base_other_tasks[mask].sort_values('datetime')
-                    else:
-                        other_target_tasks = base_other_tasks.sort_values('datetime')
-            
-            # ▼▼▼ 追加: 自分のタスクがある場合、自分の最も早いタスクの時間より「前の時間」のタスクだけ残す ▼▼▼
-            if not other_target_tasks.empty and not my_active_for_date.empty:
-                min_my_time = my_active_for_date['datetime'].min()
-                other_target_tasks = other_target_tasks[other_target_tasks['datetime'] < min_my_time]
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-                
-            if not other_target_tasks.empty:
-                has_any_displayed = True
-                date_str = current_date.strftime('%m/%d')
-                if current_date == today_date:
-                    header_text = f"📅 今日 ({date_str}) の待機タスク (他/未割当)"
+                    base_other_tasks = df[base_other_condition].copy()
+                    
+                    if not base_other_tasks.empty:
+                        user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
+                        if user_skills:
+                            def check_skill(row):
+                                title = str(row['title'])
+                                product = str(row['product'])
+                                
+                                if '/自' in title and not user_skills.get('jiei', False):
+                                    return False
+                                if product == 'イツザイ' and not user_skills.get('itsuzai', False):
+                                    return False
+                                if product == 'エージェント' and not user_skills.get('agent', False):
+                                    return False
+                                if product not in ['イツザイ', 'エージェント', 'JOBYmini'] and not user_skills.get('shukyaku', False):
+                                    return False
+                                return True
+                            
+                            mask = base_other_tasks.apply(check_skill, axis=1)
+                            other_target_tasks = base_other_tasks[mask].sort_values('datetime')
+                        else:
+                            other_target_tasks = base_other_tasks.sort_values('datetime')
+                    
+                if not other_target_tasks.empty:
+                    has_any_displayed = True
+                    date_str = current_date.strftime('%m/%d')
+                    if current_date == today_date:
+                        header_text = f"📅 今日 ({date_str}) の待機タスク (他/未割当)"
                     else:
                         header_text = f"📅 {date_str} の待機タスク (他/未割当)"
                         
