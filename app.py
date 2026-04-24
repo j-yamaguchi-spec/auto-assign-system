@@ -379,6 +379,37 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
+# ▼▼▼ 追加: 担当取得と着手を同時に行う関数 ▼▼▼
+def take_and_start_task(anken_id, assigned, original_assign=None):
+    with st.spinner('タスクを取得し、即着手しています...'):
+        now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
+        save_task_time(anken_id, now_str)
+        
+        payload_assign = {
+            "action": "update_assign",
+            "anken_id": anken_id,
+            "assigned": assigned,
+            "check_unassigned": False,
+            "original_assign": original_assign
+        }
+        payload_status = {
+            "action": "update_status",
+            "anken_id": anken_id,
+            "status": "着手",
+            "fukkatsu_min": "",
+            "expected_assign": assigned,
+            "expected_status": "未対応"
+        }
+        try:
+            safe_api_post(payload_assign) # 担当者を自分にする
+            safe_api_post(payload_status) # ステータスを着手にする
+            add_action_log(st.session_state.selected_user, "タスク取得・即着手", f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました")
+            fetch_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"処理に失敗しました: {e}")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 def update_settings(past_days, future_days, exclude_jiei):
     with st.spinner('設定を保存中...'):
         payload = {
@@ -586,6 +617,10 @@ if current_tab == "👤 ユーザー":
     my_tasks = pd.DataFrame()
     if not df.empty:
         my_tasks = df[df['assigned'] == st.session_state.selected_user].copy()
+    
+    # ▼▼▼ 修正: ボタンの無効化判定に使うため、着手中タスクの変数を上部に移動 ▼▼▼
+    active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     comp_count_normal = 0
     comp_min_normal = 0
@@ -919,8 +954,12 @@ if current_tab == "👤 ユーザー":
                             orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
                             if orig_assign in ["None", "NaN", "未割当"]:
                                 orig_assign = ""
-                            if st.button("🙋 取得", key=f"take_other_{t['anken_id']}", use_container_width=True, help="このタスクを自分の担当にします"):
-                                update_assign(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
+                            
+                            # ▼▼▼ 修正: すでに着手中なら無効化 ＆ 同時着手関数に変更 ▼▼▼
+                            is_disabled = not active_tasks.empty
+                            if st.button("🙋 取得して着手", key=f"take_other_{t['anken_id']}", disabled=is_disabled, use_container_width=True, help="このタスクを自分の担当にして着手します"):
+                                take_and_start_task(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
+                            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         
                         if idx < len(other_target_tasks) - 1:
                             st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
@@ -962,14 +1001,17 @@ if current_tab == "👤 ユーザー":
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
-                    if st.button("🙋 私が担当する", key=f"sos_assign_{task['anken_id']}", type="primary", use_container_width=True):
-                        update_assign(task['anken_id'], st.session_state.selected_user, original_assign="")
+                    # ▼▼▼ 修正: SOSリストのボタンも同時着手関数に変更 ▼▼▼
+                    is_disabled = not active_tasks.empty
+                    if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", use_container_width=True):
+                        take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
-    active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
-    
+    # ▼▼▼ 修正: active_tasks の定義は上部に移動したので、ここは判定だけ残す ▼▼▼
     if not active_tasks.empty:
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         task = active_tasks.iloc[0]
         task_date = task['datetime'].strftime('%m/%d')
         start_t = task['datetime'].strftime('%H:%M')
@@ -1505,10 +1547,8 @@ elif current_tab == "⚙️ 管理者":
                         "完了": st.column_config.NumberColumn("完了", format="%d", width="small"),
                         "完了分数": st.column_config.NumberColumn("完了分数", format="%d 分", width="small"),
                         "復活音源件数": st.column_config.NumberColumn("復活音源", format="%d", width="small"),
-                        # ▼▼▼ 修正: 数値専用カラムから、テキスト用カラムに変更し、横幅を広げました ▼▼▼
                         "別業務時間": st.column_config.Column("別業務", width="small"),
-                        "休憩時間": st.column_config.Column("休憩", width="small"), 
-                        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                        "休憩時間": st.column_config.Column("休憩", width="small"),
                         "現在の作業": st.column_config.Column("現在の作業", width="medium"),
                     }
                 )
