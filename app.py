@@ -199,6 +199,32 @@ def clear_action_logs():
         except Exception:
             pass
 
+# ▼▼▼ 追加: 日付が変わった時にUI側のキャッシュ(別業務・休憩状態など)を自動リセットする関数 ▼▼▼
+def check_and_clear_daily_logs():
+    LAST_RESET_DATE_FILE = "last_reset_date.txt"
+    now_date = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+    
+    last_date = ""
+    if os.path.exists(LAST_RESET_DATE_FILE):
+        try:
+            with open(LAST_RESET_DATE_FILE, "r", encoding="utf-8") as f:
+                last_date = f.read().strip()
+        except Exception:
+            pass
+            
+    if last_date != now_date:
+        clear_all_work_data()
+        clear_action_logs()
+        try:
+            with open(LAST_RESET_DATE_FILE, "w", encoding="utf-8") as f:
+                f.write(now_date)
+        except Exception:
+            pass
+
+# アプリが読み込まれたタイミングで、日付チェックを毎回走らせる
+check_and_clear_daily_logs()
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 # ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
 GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
 
