@@ -467,6 +467,49 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
         try:
             safe_api_post(payload)
             add_action_log(st.session_state.selected_user, "メンバー設定変更", f"{name} さんのスキル/ステータスを更新")
+            
+            # ▼▼▼ 追加: 管理者画面からのステータス変更を、UI側（画面）のタイマーや表示にも連動させる ▼▼▼
+            u_data = get_user_work_data(name)
+            old_status = u_data["current_status"]
+            
+            if old_status != status:
+                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                o_logs = u_data["other_work_logs"]
+                o_min = u_data["other_work_total_min"]
+                o_start = u_data["other_work_start_time"]
+                
+                b_logs = u_data["break_logs"]
+                b_min = u_data["break_total_min"]
+                b_start = u_data["break_start_time"]
+                
+                # 古いステータス（休憩・別業務など）から出社に戻した場合、タイマーをストップして記録
+                if old_status == "休憩中" and pd.notna(b_start):
+                    if getattr(b_start, 'tzinfo', None) is None: b_start = b_start.tz_localize('Asia/Tokyo')
+                    b_logs.append(f"終了: {now.strftime('%H:%M')}")
+                    b_min += int((now - b_start).total_seconds() / 60)
+                    b_start = None
+                elif old_status == "別業務中" and pd.notna(o_start):
+                    if getattr(o_start, 'tzinfo', None) is None: o_start = o_start.tz_localize('Asia/Tokyo')
+                    o_logs.append(f"終了: {now.strftime('%H:%M')}")
+                    o_min += int((now - o_start).total_seconds() / 60)
+                    o_start = None
+                
+                # 新しいステータス（休憩・別業務など）に変更した場合、タイマーを新しくスタート
+                if status == "休憩中":
+                    b_start = now
+                    b_logs.append(f"開始: {now.strftime('%H:%M')}")
+                elif status == "別業務中":
+                    o_start = now
+                    o_logs.append(f"開始: {now.strftime('%H:%M')}")
+                
+                # 画面の裏側にデータを上書き保存
+                save_user_work_data(
+                    name, status, o_logs, o_min, o_start,
+                    break_logs=b_logs, break_total_min=b_min, break_start_time=b_start,
+                    cancel_logs=u_data["cancel_logs"], cancel_total_min=u_data["cancel_total_min"], cancel_count=u_data["cancel_count"]
+                )
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
             fetch_data.clear()
             st.rerun()
         except Exception as e:
