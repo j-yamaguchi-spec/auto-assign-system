@@ -350,6 +350,9 @@ def fetch_data():
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
             df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
+        else:
+            # ▼ データが空の場合でも、列の枠組みだけは確実に作っておく
+            df = pd.DataFrame(columns=['datetime', 'anken_id', 'title', 'duration', 'product', 'method', 'fukkatsu', 'fukkatsu_min', 'phone', 'assigned', 'status', 'is_manual'])
         
         members = data.get("members", [])
         api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False})
@@ -360,7 +363,8 @@ def fetch_data():
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        df_empty = pd.DataFrame(columns=['datetime', 'anken_id', 'title', 'duration', 'product', 'method', 'fukkatsu', 'fukkatsu_min', 'phone', 'assigned', 'status', 'is_manual'])
+        return df_empty, [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, expected_status=None):
     with st.spinner('ステータスを更新し、裏側で再計算しています...'):
@@ -405,7 +409,6 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-# ▼▼▼ 追加: 担当取得と着手を同時に行う関数 ▼▼▼
 def take_and_start_task(anken_id, assigned, original_assign=None):
     with st.spinner('タスクを取得し、即着手しています...'):
         now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
@@ -434,7 +437,6 @@ def take_and_start_task(anken_id, assigned, original_assign=None):
             st.rerun()
         except Exception as e:
             st.error(f"処理に失敗しました: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
 def update_settings(past_days, future_days, exclude_jiei):
     with st.spinner('設定を保存中...'):
@@ -468,7 +470,6 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
             safe_api_post(payload)
             add_action_log(st.session_state.selected_user, "メンバー設定変更", f"{name} さんのスキル/ステータスを更新")
             
-            # ▼▼▼ 追加: 管理者画面からのステータス変更を、UI側（画面）のタイマーや表示にも連動させる ▼▼▼
             user_data = get_user_work_data(name)
             old_status = user_data["current_status"]
             
@@ -482,7 +483,6 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
                 b_min = user_data["break_total_min"]
                 b_start = user_data["break_start_time"]
                 
-                # 古いステータス（休憩・別業務など）から出社に戻した場合、タイマーをストップして記録
                 if old_status == "休憩中" and pd.notna(b_start):
                     if getattr(b_start, 'tzinfo', None) is None: b_start = b_start.tz_localize('Asia/Tokyo')
                     b_logs.append(f"終了: {now.strftime('%H:%M')}")
@@ -494,7 +494,6 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
                     o_min += int((now - o_start).total_seconds() / 60)
                     o_start = None
                 
-                # 新しいステータス（休憩・別業務など）に変更した場合、タイマーを新しくスタート
                 if status == "休憩中":
                     b_start = now
                     b_logs.append(f"開始: {now.strftime('%H:%M')}")
@@ -502,13 +501,11 @@ def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
                     o_start = now
                     o_logs.append(f"開始: {now.strftime('%H:%M')}")
                 
-                # 画面の裏側にデータを上書き保存
                 save_user_work_data(
                     name, status, o_logs, o_min, o_start,
                     break_logs=b_logs, break_total_min=b_min, break_start_time=b_start,
                     cancel_logs=user_data["cancel_logs"], cancel_total_min=user_data["cancel_total_min"], cancel_count=user_data["cancel_count"]
                 )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             fetch_data.clear()
             st.rerun()
@@ -591,11 +588,9 @@ if not df.empty:
         (df['assigned'].fillna('').astype(str).str.strip().isin(['', 'None', 'NaN', '未割当']))
     )
     if api_settings.get("exclude_jiei", False):
-        # ▼▼▼ 修正: (同行)例外処理 ▼▼▼
         jiei_mask = df['title'].astype(str).str.contains('/自', na=False)
         doukou_mask = df['title'].astype(str).str.contains(r'[\(（【]同行', regex=True, na=False)
         alert_condition &= ~(jiei_mask & ~doukou_mask)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
     unassigned_alert_tasks = df[alert_condition].sort_values('datetime')
 
@@ -685,11 +680,10 @@ today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 if current_tab == "👤 ユーザー":
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
-    my_tasks = pd.DataFrame()
-    if not df.empty:
-        my_tasks = df[df['assigned'] == st.session_state.selected_user].copy()
-    
-    active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
+    # ▼▼▼ 修正: データが空の時も列の情報を維持するように修正 ▼▼▼
+    my_tasks = df[df['assigned'] == st.session_state.selected_user].copy()
+    active_tasks = my_tasks[my_tasks['status'] == '着手'].copy()
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     comp_count_normal = 0
     comp_min_normal = 0
@@ -941,9 +935,9 @@ if current_tab == "👤 ユーザー":
         else:
             target_end_date = today_date + pd.Timedelta(days=1)
         
-        # ▼▼▼ 修正: データが空の時は処理をスキップする安全装置（if not my_tasks.empty else pd.DataFrame()）を追加 ▼▼▼
-        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])] if not my_tasks.empty else pd.DataFrame()
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        # ▼▼▼ 修正: my_tasksの列情報を維持したまま抽出し、エラーを防ぎます ▼▼▼
+        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])].copy()
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         current_date = today_date
         has_any_displayed = False
@@ -961,12 +955,10 @@ if current_tab == "👤 ユーザー":
                     (df['fukkatsu'] == False)
                 )
                 
-                # ▼▼▼ 修正: (同行)対応 ▼▼▼
                 if api_settings.get("exclude_jiei", False):
                     jiei_mask = df['title'].astype(str).str.contains('/自', na=False)
                     doukou_mask = df['title'].astype(str).str.contains(r'[\(（【]同行', regex=True, na=False)
                     base_other_condition &= ~(jiei_mask & ~doukou_mask)
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     
                 base_other_tasks = df[base_other_condition].copy()
                 
@@ -977,11 +969,9 @@ if current_tab == "👤 ユーザー":
                             title = str(row['title'])
                             product = str(row['product'])
                             
-                            # ▼▼▼ 修正: (同行)対応 ▼▼▼
                             is_doukou = any(k in title for k in ['(同行', '（同行', '【同行'])
                             if '/自' in title and not is_doukou and not user_skills.get('jiei', False):
                                 return False
-                            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                             if product == 'イツザイ' and not user_skills.get('itsuzai', False):
                                 return False
                             if product == 'エージェント' and not user_skills.get('agent', False):
@@ -1044,12 +1034,10 @@ if current_tab == "👤 ユーザー":
     if not unassigned_alert_tasks.empty:
         sos_df = unassigned_alert_tasks.copy()
         
-        # ▼▼▼ 修正: (同行)対応 ▼▼▼
         if api_settings.get("exclude_jiei", False):
             jiei_mask = sos_df['title'].astype(str).str.contains('/自', na=False)
             doukou_mask = sos_df['title'].astype(str).str.contains(r'[\(（【]同行', regex=True, na=False)
             sos_df = sos_df[~(jiei_mask & ~doukou_mask)]
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         if not sos_df.empty:
             user_skills = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), None)
@@ -1058,11 +1046,9 @@ if current_tab == "👤 ユーザー":
                     title = str(row['title'])
                     product = str(row['product'])
                     
-                    # ▼▼▼ 修正: (同行)対応 ▼▼▼
                     is_doukou = any(k in title for k in ['(同行', '（同行', '【同行'])
                     if '/自' in title and not is_doukou and not user_skills.get('jiei', False):
                         return False
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                     if product == 'イツザイ' and not user_skills.get('itsuzai', False):
                         return False
                     if product == 'エージェント' and not user_skills.get('agent', False):
@@ -1208,7 +1194,9 @@ if current_tab == "👤 ユーザー":
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
 
     # --- 中段: 中断中のタスクリスト ---
-    paused_tasks = my_tasks[my_tasks['status'] == '中断'].sort_values('datetime') if not my_tasks.empty else pd.DataFrame()
+    # ▼▼▼ 修正: my_tasksの列情報を維持したまま抽出し、エラーを防ぎます ▼▼▼
+    paused_tasks = my_tasks[my_tasks['status'] == '中断'].sort_values('datetime')
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     if not paused_tasks.empty:
         st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #dd6b20; font-weight: bold;'>⏸️ 中断中のタスク</div>", unsafe_allow_html=True)
@@ -1256,7 +1244,9 @@ if current_tab == "👤 ユーザー":
     # --- 下段: 待機中のタスクリスト ---
     st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
     
-    waiting_tasks = my_tasks[my_tasks['status'] == '未対応'].copy() if not my_tasks.empty else pd.DataFrame()
+    # ▼▼▼ 修正: my_tasksの列情報を維持したまま抽出し、エラーを防ぎます ▼▼▼
+    waiting_tasks = my_tasks[my_tasks['status'] == '未対応'].copy()
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
@@ -1461,12 +1451,10 @@ elif current_tab == "⚙️ 管理者":
             
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
             
-            # ▼▼▼ 修正: (同行)例外処理 ▼▼▼
             if api_settings.get("exclude_jiei", False):
                 jiei_mask = filtered_df['title'].astype(str).str.contains('/自', na=False)
                 doukou_mask = filtered_df['title'].astype(str).str.contains(r'[\(（【]同行', regex=True, na=False)
                 filtered_df = filtered_df[~(jiei_mask & ~doukou_mask)].copy()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
@@ -1788,12 +1776,10 @@ elif current_tab == "⚙️ 管理者":
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
         
-        # ▼▼▼ 修正: (同行)例外処理 ▼▼▼
         if api_settings.get("exclude_jiei", False):
             jiei_mask = waiting_cases_df['タイトル'].astype(str).str.contains('/自', na=False)
             doukou_mask = waiting_cases_df['タイトル'].astype(str).str.contains(r'[\(（【]同行', regex=True, na=False)
             waiting_cases_df = waiting_cases_df[~(jiei_mask & ~doukou_mask)].copy()
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
