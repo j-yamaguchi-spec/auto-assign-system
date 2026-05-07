@@ -353,6 +353,7 @@ def fetch_data():
         else:
             # ▼ データが空の場合でも、列の枠組みだけは確実に作っておく
             df = pd.DataFrame(columns=['datetime', 'anken_id', 'title', 'duration', 'product', 'method', 'fukkatsu', 'fukkatsu_min', 'phone', 'assigned', 'status', 'is_manual'])
+            df['datetime'] = pd.to_datetime(df['datetime']) # ← ★追加: 空の列でも日付型だと指定する
         
         members = data.get("members", [])
         api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False})
@@ -364,6 +365,7 @@ def fetch_data():
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
         df_empty = pd.DataFrame(columns=['datetime', 'anken_id', 'title', 'duration', 'product', 'method', 'fukkatsu', 'fukkatsu_min', 'phone', 'assigned', 'status', 'is_manual'])
+        df_empty['datetime'] = pd.to_datetime(df_empty['datetime']) # ← ★追加: エラー時の空枠でも日付型に指定する
         return df_empty, [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, expected_status=None):
