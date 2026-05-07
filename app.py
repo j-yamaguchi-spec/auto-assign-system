@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import time
 import json
+import re
 import os
 import streamlit.components.v1 as components
 import html as html_lib
@@ -15,218 +16,15 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ==========================================
-# 1. 初期設定とセッションステート
+# 1. 初期設定と定数
 # ==========================================
-st.set_page_config(page_title="自動振り分けシステム", layout="wide")
+st.set_page_config(page_title="自動振り分けシステム", layout="wide", page_icon="⚡")
+
+# 🚨 ここに新しくデプロイしたGASのURLを貼り付けてください
+GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec")
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
-
-WORK_LOG_FILE = "work_logs.json"
-
-def get_user_work_data(username):
-    if os.path.exists(WORK_LOG_FILE):
-        try:
-            with open(WORK_LOG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                user_data = data.get(username)
-                if user_data:
-                    st_time_str = user_data.get("other_work_start_time")
-                    start_time = pd.to_datetime(st_time_str) if st_time_str else None
-                    
-                    b_time_str = user_data.get("break_start_time")
-                    b_start_time = pd.to_datetime(b_time_str) if b_time_str else None
-                    
-                    return {
-                        "current_status": user_data.get("current_status", "出社"),
-                        "other_work_logs": user_data.get("other_work_logs", []),
-                        "other_work_total_min": user_data.get("other_work_total_min", 0),
-                        "other_work_start_time": start_time,
-                        "cancel_logs": user_data.get("cancel_logs", []),
-                        "cancel_total_min": user_data.get("cancel_total_min", 0),
-                        "cancel_count": user_data.get("cancel_count", 0),
-                        "break_logs": user_data.get("break_logs", []),
-                        "break_total_min": user_data.get("break_total_min", 0),
-                        "break_start_time": b_start_time
-                    }
-        except Exception:
-            pass
-    return {
-        "current_status": "出社",
-        "other_work_logs": [],
-        "other_work_total_min": 0,
-        "other_work_start_time": None,
-        "cancel_logs": [],
-        "cancel_total_min": 0,
-        "cancel_count": 0,
-        "break_logs": [],
-        "break_total_min": 0,
-        "break_start_time": None
-    }
-
-def save_user_work_data(username, status, logs, total_min, start_time, **kwargs):
-    data = {}
-    if os.path.exists(WORK_LOG_FILE):
-        try:
-            with open(WORK_LOG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            pass
-    
-    st_time_str = start_time.isoformat() if start_time else None
-    user_data = data.get(username, {})
-    
-    c_logs = kwargs.get("cancel_logs", user_data.get("cancel_logs", []))
-    c_total_min = kwargs.get("cancel_total_min", user_data.get("cancel_total_min", 0))
-    c_count = kwargs.get("cancel_count", user_data.get("cancel_count", 0))
-    
-    b_logs = kwargs.get("break_logs", user_data.get("break_logs", []))
-    b_total_min = kwargs.get("break_total_min", user_data.get("break_total_min", 0))
-    
-    if "break_start_time" in kwargs:
-        b_time_val = kwargs["break_start_time"]
-        b_time_str = b_time_val.isoformat() if b_time_val else None
-    else:
-        b_time_str = user_data.get("break_start_time")
-    
-    data[username] = {
-        "current_status": status,
-        "other_work_logs": logs,
-        "other_work_total_min": total_min,
-        "other_work_start_time": st_time_str,
-        "cancel_logs": c_logs,
-        "cancel_total_min": c_total_min,
-        "cancel_count": c_count,
-        "break_logs": b_logs,
-        "break_total_min": b_total_min,
-        "break_start_time": b_time_str
-    }
-    
-    try:
-        with open(WORK_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-def clear_all_work_data():
-    if os.path.exists(WORK_LOG_FILE):
-        try:
-            os.remove(WORK_LOG_FILE)
-        except Exception:
-            pass
-
-SYSTEM_SETTINGS_FILE = "system_settings.json"
-
-def get_system_settings():
-    if os.path.exists(SYSTEM_SETTINGS_FILE):
-        try:
-            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_system_settings(key, value):
-    data = get_system_settings()
-    data[key] = value
-    try:
-        with open(SYSTEM_SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-TASK_TIME_FILE = "task_times.json"
-
-def get_task_times():
-    if os.path.exists(TASK_TIME_FILE):
-        try:
-            with open(TASK_TIME_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_task_time(anken_id, time_str):
-    data = get_task_times()
-    data[anken_id] = time_str
-    try:
-        with open(TASK_TIME_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-ACTION_LOG_FILE = "action_logs.json"
-
-def add_action_log(username, action, details=""):
-    logs = []
-    if os.path.exists(ACTION_LOG_FILE):
-        try:
-            with open(ACTION_LOG_FILE, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-        except Exception:
-            pass
-    
-    now = pd.Timestamp.now(tz='Asia/Tokyo')
-    
-    logs.append({
-        "timestamp": now.isoformat(),
-        "user": username,
-        "action": action,
-        "details": details
-    })
-    
-    try:
-        with open(ACTION_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-def get_action_logs():
-    if os.path.exists(ACTION_LOG_FILE):
-        try:
-            with open(ACTION_LOG_FILE, "r", encoding="utf-8") as f:
-                logs = json.load(f)
-                logs.sort(key=lambda x: x["timestamp"], reverse=True)
-                return logs
-        except Exception:
-            pass
-    return []
-
-def clear_action_logs():
-    if os.path.exists(ACTION_LOG_FILE):
-        try:
-            os.remove(ACTION_LOG_FILE)
-        except Exception:
-            pass
-
-# ▼▼▼ 追加: 日付が変わった時にUI側のキャッシュ(別業務・休憩状態など)を自動リセットする関数 ▼▼▼
-def check_and_clear_daily_logs():
-    LAST_RESET_DATE_FILE = "last_reset_date.txt"
-    now_date = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
-    
-    last_date = ""
-    if os.path.exists(LAST_RESET_DATE_FILE):
-        try:
-            with open(LAST_RESET_DATE_FILE, "r", encoding="utf-8") as f:
-                last_date = f.read().strip()
-        except Exception:
-            pass
-            
-    if last_date != now_date:
-        clear_all_work_data()
-        clear_action_logs()
-        try:
-            with open(LAST_RESET_DATE_FILE, "w", encoding="utf-8") as f:
-                f.write(now_date)
-        except Exception:
-            pass
-
-# アプリが読み込まれたタイミングで、日付チェックを毎回走らせる
-check_and_clear_daily_logs()
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
-# ※※※ GASのURL（Phase 2のもの）に書き換えてください ※※※
-GAS_URL = "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec"
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -286,7 +84,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. バックエンド通信ロジック (リトライ機能搭載)
+# 3. クラウド通信・バックエンドロジック
 # ==========================================
 def safe_api_post(payload, max_retries=3):
     for attempt in range(max_retries):
@@ -341,6 +139,15 @@ def safe_api_get(max_retries=3):
             
     raise Exception("システムが非常に混み合っています。")
 
+# ▼ 例外処理(同行)を判定する関数
+def is_exclude_target(title):
+    title_str = str(title) if pd.notna(title) else ""
+    is_jiei = "/自" in title_str
+    # 全角/半角の「(同行)」を正規表現で検知（中に「希望」などがあってもOK）
+    is_doukou = bool(re.search(r'[（\(]同行.*?[）\)]', title_str))
+    # 自営であり、かつ同行ではないものが「除外対象(True)」
+    return is_jiei and not is_doukou
+
 @st.cache_data(ttl=60) 
 def fetch_data():
     try:
@@ -350,25 +157,46 @@ def fetch_data():
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
             df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
+            # Pandas側でも除外対象かどうかを判定フラグとして持たせる
+            df['is_exclude_target'] = df['title'].apply(is_exclude_target)
         
         members = data.get("members", [])
         api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False})
         members_data = data.get("membersData", [])
         api_manual_data = data.get("manualData", [])
         api_fastpass_ids = data.get("fastpassIds", [])
+        api_action_logs = data.get("actionLogs", [])
         
-        return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, fetch_time
+        return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+
+# ==========================================
+# 4. クラウドデータベース更新用 ヘルパー関数群
+# ==========================================
+def log_action_to_gas(user, action_name, details):
+    payload = {
+        "action": "add_action_log",
+        "user": user,
+        "log_action": action_name,
+        "details": details
+    }
+    try:
+        safe_api_post(payload)
+    except:
+        pass # ログ書き込みの失敗はシステムを止めない
+
+def update_work_data_to_gas(user, **kwargs):
+    payload = {"action": "update_user_work_data", "username": user}
+    payload.update(kwargs)
+    try:
+        safe_api_post(payload)
+    except Exception as e:
+        st.error(f"勤怠データの更新に失敗しました: {e}")
 
 def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, expected_status=None):
     with st.spinner('ステータスを更新し、裏側で再計算しています...'):
-        if new_status == "着手":
-            now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
-            save_task_time(anken_id, now_str)
-        
-        # エラー防止のためNaNを空文字に変換
         if pd.isna(expected_assign): expected_assign = ""
         if pd.isna(expected_status): expected_status = ""
         
@@ -382,7 +210,7 @@ def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, e
         }
         try:
             safe_api_post(payload) 
-            add_action_log(st.session_state.selected_user, "タスク状態変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更")
+            log_action_to_gas(st.session_state.selected_user, "タスク状態変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -399,18 +227,14 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
         }
         try:
             safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "担当者手動変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更")
+            log_action_to_gas(st.session_state.selected_user, "担当者手動変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
             st.error(f"更新に失敗しました: {e}")
 
-# ▼▼▼ 追加: 担当取得と着手を同時に行う関数 ▼▼▼
 def take_and_start_task(anken_id, assigned, original_assign=None):
     with st.spinner('タスクを取得し、即着手しています...'):
-        now_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M")
-        save_task_time(anken_id, now_str)
-        
         payload_assign = {
             "action": "update_assign",
             "anken_id": anken_id,
@@ -427,156 +251,42 @@ def take_and_start_task(anken_id, assigned, original_assign=None):
             "expected_status": "未対応"
         }
         try:
-            safe_api_post(payload_assign) # 担当者を自分にする
-            safe_api_post(payload_status) # ステータスを着手にする
-            add_action_log(st.session_state.selected_user, "タスク取得・即着手", f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました")
+            safe_api_post(payload_assign)
+            safe_api_post(payload_status)
+            log_action_to_gas(st.session_state.selected_user, "タスク取得・即着手", f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
             st.error(f"処理に失敗しました: {e}")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-
-def update_settings(past_days, future_days, exclude_jiei):
-    with st.spinner('設定を保存中...'):
-        payload = {
-            "action": "update_settings",
-            "past_days": past_days,
-            "future_days": future_days,
-            "exclude_jiei": exclude_jiei
-        }
-        try:
-            safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "設定変更", f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}")
-            fetch_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"更新に失敗しました: {e}")
-
-def update_skills(name, status, shift, itsuzai, agent, shukyaku, jiei):
-    with st.spinner(f'{name}さんの設定を保存中...'):
-        payload = {
-            "action": "update_skills",
-            "name": name,
-            "status": status,
-            "shift": shift,
-            "itsuzai": itsuzai,
-            "agent": agent,
-            "shukyaku": shukyaku,
-            "jiei": jiei
-        }
-        try:
-            safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "メンバー設定変更", f"{name} さんのスキル/ステータスを更新")
-            
-            # ▼▼▼ 追加: 管理者画面からのステータス変更を、UI側（画面）のタイマーや表示にも連動させる ▼▼▼
-            u_data = get_user_work_data(name)
-            old_status = u_data["current_status"]
-            
-            if old_status != status:
-                now = pd.Timestamp.now(tz='Asia/Tokyo')
-                o_logs = u_data["other_work_logs"]
-                o_min = u_data["other_work_total_min"]
-                o_start = u_data["other_work_start_time"]
-                
-                b_logs = u_data["break_logs"]
-                b_min = u_data["break_total_min"]
-                b_start = u_data["break_start_time"]
-                
-                # 古いステータス（休憩・別業務など）から出社に戻した場合、タイマーをストップして記録
-                if old_status == "休憩中" and pd.notna(b_start):
-                    if getattr(b_start, 'tzinfo', None) is None: b_start = b_start.tz_localize('Asia/Tokyo')
-                    b_logs.append(f"終了: {now.strftime('%H:%M')}")
-                    b_min += int((now - b_start).total_seconds() / 60)
-                    b_start = None
-                elif old_status == "別業務中" and pd.notna(o_start):
-                    if getattr(o_start, 'tzinfo', None) is None: o_start = o_start.tz_localize('Asia/Tokyo')
-                    o_logs.append(f"終了: {now.strftime('%H:%M')}")
-                    o_min += int((now - o_start).total_seconds() / 60)
-                    o_start = None
-                
-                # 新しいステータス（休憩・別業務など）に変更した場合、タイマーを新しくスタート
-                if status == "休憩中":
-                    b_start = now
-                    b_logs.append(f"開始: {now.strftime('%H:%M')}")
-                elif status == "別業務中":
-                    o_start = now
-                    o_logs.append(f"開始: {now.strftime('%H:%M')}")
-                
-                # 画面の裏側にデータを上書き保存
-                save_user_work_data(
-                    name, status, o_logs, o_min, o_start,
-                    break_logs=b_logs, break_total_min=b_min, break_start_time=b_start,
-                    cancel_logs=u_data["cancel_logs"], cancel_total_min=u_data["cancel_total_min"], cancel_count=u_data["cancel_count"]
-                )
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-            
-            fetch_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"更新に失敗しました: {e}")
-
-def reset_system():
-    with st.spinner('システムを全リセットし、再振り分けを行っています... (時間がかかります)'):
-        payload = {
-            "action": "reset_system"
-        }
-        try:
-            safe_api_post(payload)
-            clear_all_work_data()
-            clear_action_logs() 
-            add_action_log(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
-            fetch_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"リセットに失敗しました: {e}")
-
-def update_all_overtime(minutes):
-    with st.spinner(f'全メンバーの残業時間を {minutes} 分に設定し、再計算中...'):
-        payload = {
-            "action": "update_all_overtime",
-            "minutes": minutes
-        }
-        try:
-            safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "残業時間一括設定", f"全メンバーの残業時間を {minutes} 分に設定")
-            fetch_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"更新に失敗しました: {e}")
 
 def update_user_status_api(name, status):
-    with st.spinner(f'システム側も「{status}」に更新し、タスクを再計算中...'):
-        payload = {
-            "action": "update_member_status",
-            "name": name,
-            "status": status
-        }
-        try:
-            safe_api_post(payload)
-            add_action_log(st.session_state.selected_user, "ステータス連動", f"{name} さんが「{status}」に変更")
-            fetch_data.clear() 
-            return True
-        except Exception as e:
-            st.error(f"⚠️ GASとの通信に失敗しました。\nGAS側で『新しいバージョンとしてデプロイ』が実行されていない可能性が高いです。\n詳細: {e}")
-            return False
+    payload = {
+        "action": "update_member_status",
+        "name": name,
+        "status": status
+    }
+    try:
+        safe_api_post(payload)
+        log_action_to_gas(st.session_state.selected_user, "ステータス変更", f"{name} さんが「{status}」に変更")
+        return True
+    except Exception as e:
+        st.error(f"GASとの通信に失敗しました。詳細: {e}")
+        return False
 
 # ==========================================
-# 4. ヘッダー
+# 5. ヘッダー
 # ==========================================
 def handle_refresh():
     fetch_data.clear()
 
 header_container = st.container()
-df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, fetch_time = fetch_data()
+df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time = fetch_data()
 
-# ▼▼▼ 修正: ファストパスの表示上限日を「一番古い未対応タスク」から「設定された対象日付」に変更 ▼▼▼
-sys_settings_for_fp = get_system_settings()
-saved_target_date_for_fp = sys_settings_for_fp.get("target_date")
-if saved_target_date_for_fp:
-    fp_limit_date = pd.to_datetime(saved_target_date_for_fp).date()
-else:
-    fp_limit_date = pd.Timestamp.now(tz='Asia/Tokyo').date()
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# セッションステートに管理者設定の日付を保持(UIフィルター用)
+if "target_date_str" not in st.session_state:
+    st.session_state.target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+
+fp_limit_date = pd.to_datetime(st.session_state.target_date_str).date()
 
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
@@ -593,7 +303,7 @@ if not df.empty:
         (df['assigned'].fillna('').astype(str).str.strip().isin(['', 'None', 'NaN', '未割当']))
     )
     if api_settings.get("exclude_jiei", False):
-        alert_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
+        alert_condition &= ~df['is_exclude_target']
         
     unassigned_alert_tasks = df[alert_condition].sort_values('datetime')
 
@@ -676,7 +386,7 @@ with header_container:
 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. メイン画面（ユーザータブ）
+# 6. メイン画面（ユーザータブ）
 # ==========================================
 today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 
@@ -687,9 +397,7 @@ if current_tab == "👤 ユーザー":
     if not df.empty:
         my_tasks = df[df['assigned'] == st.session_state.selected_user].copy()
     
-    # ▼▼▼ 修正: ボタンの無効化判定に使うため、着手中タスクの変数を上部に移動 ▼▼▼
     active_tasks = my_tasks[my_tasks['status'] == '着手'] if not my_tasks.empty else pd.DataFrame()
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     comp_count_normal = 0
     comp_min_normal = 0
@@ -709,15 +417,18 @@ if current_tab == "👤 ユーザー":
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
-        user_data = get_user_work_data(st.session_state.selected_user)
-        current_status = user_data["current_status"]
-        other_work_logs = user_data["other_work_logs"]
-        other_work_total_min = user_data["other_work_total_min"]
-        other_work_start_time = user_data["other_work_start_time"]
+        # JSON廃止！GASのapi_members_dataから直接抽出
+        user_info = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), {})
+        current_status = user_info.get("status", "出社")
         
-        break_logs = user_data["break_logs"]
-        break_total_min = user_data["break_total_min"]
-        break_start_time = user_data["break_start_time"]
+        other_work_min = int(user_info.get("other_work_min", 0))
+        other_work_start = str(user_info.get("other_work_start", ""))
+        
+        break_min = int(user_info.get("break_min", 0))
+        break_start = str(user_info.get("break_start", ""))
+        
+        cancel_count = int(user_info.get("cancel_count", 0))
+        cancel_min = int(user_info.get("cancel_min", 0))
         
         st.markdown(f"""
         <div class="custom-card">
@@ -731,86 +442,93 @@ if current_tab == "👤 ユーザー":
         with btn_c1:
             if current_status == "休憩中":
                 if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    if update_user_status_api(st.session_state.selected_user, "出社"):
-                        now = pd.Timestamp.now(tz='Asia/Tokyo')
-                        break_logs.append(f"終了: {now.strftime('%H:%M')}")
-                        
-                        if break_start_time:
-                            diff = now - break_start_time
-                            minutes = int(diff.total_seconds() / 60)
-                            break_total_min += minutes
-                            break_start_time = None
-                            
-                        save_user_work_data(
-                            st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time,
-                            break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
-                        )
-                        st.rerun()
+                    with st.spinner('更新中...'):
+                        if update_user_status_api(st.session_state.selected_user, "出社"):
+                            now = pd.Timestamp.now(tz='Asia/Tokyo')
+                            add_min = 0
+                            if break_start:
+                                try:
+                                    b_st_dt = pd.to_datetime(break_start)
+                                    if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                    add_min = int((now - b_st_dt).total_seconds() / 60)
+                                except: pass
+                            new_total = break_min + add_min
+                            update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
+                            fetch_data.clear()
+                            st.rerun()
             else:
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
-                    if update_user_status_api(st.session_state.selected_user, "休憩中"):
-                        now = pd.Timestamp.now(tz='Asia/Tokyo')
-                        break_start_time = now
-                        break_logs.append(f"開始: {now.strftime('%H:%M')}")
-                        
-                        save_user_work_data(
-                            st.session_state.selected_user, "休憩中", other_work_logs, other_work_total_min, other_work_start_time,
-                            break_logs=break_logs, break_total_min=break_total_min, break_start_time=break_start_time
-                        )
-                        st.rerun()
+                    with st.spinner('更新中...'):
+                        if update_user_status_api(st.session_state.selected_user, "休憩中"):
+                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
+                            update_work_data_to_gas(st.session_state.selected_user, break_start=now_str)
+                            fetch_data.clear()
+                            st.rerun()
                     
         with btn_c2:
             if current_status == "別業務中":
                 if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    if update_user_status_api(st.session_state.selected_user, "出社"):
-                        now = pd.Timestamp.now(tz='Asia/Tokyo')
-                        other_work_logs.append(f"終了: {now.strftime('%H:%M')}")
-                        
-                        if other_work_start_time:
-                            diff = now - other_work_start_time
-                            minutes = int(diff.total_seconds() / 60)
-                            other_work_total_min += minutes
-                            other_work_start_time = None
-                            
-                        save_user_work_data(st.session_state.selected_user, "出社", other_work_logs, other_work_total_min, other_work_start_time)
-                        st.rerun()
+                    with st.spinner('更新中...'):
+                        if update_user_status_api(st.session_state.selected_user, "出社"):
+                            now = pd.Timestamp.now(tz='Asia/Tokyo')
+                            add_min = 0
+                            if other_work_start:
+                                try:
+                                    o_st_dt = pd.to_datetime(other_work_start)
+                                    if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                    add_min = int((now - o_st_dt).total_seconds() / 60)
+                                except: pass
+                            new_total = other_work_min + add_min
+                            update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
+                            fetch_data.clear()
+                            st.rerun()
             else:
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
-                    if update_user_status_api(st.session_state.selected_user, "別業務中"):
-                        now = pd.Timestamp.now(tz='Asia/Tokyo')
-                        other_work_start_time = now 
-                        other_work_logs.append(f"開始: {now.strftime('%H:%M')}")
-                        save_user_work_data(st.session_state.selected_user, "別業務中", other_work_logs, other_work_total_min, other_work_start_time)
-                        st.rerun()
+                    with st.spinner('更新中...'):
+                        if update_user_status_api(st.session_state.selected_user, "別業務中"):
+                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
+                            update_work_data_to_gas(st.session_state.selected_user, other_work_start=now_str)
+                            fetch_data.clear()
+                            st.rerun()
                     
-        b_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in break_logs[-3:]])
-        o_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in other_work_logs[-3:]])
+        # 表示用のリアルタイム計算
+        disp_b_min = break_min
+        disp_o_min = other_work_min
+        now_disp = pd.Timestamp.now(tz='Asia/Tokyo')
+        
+        if current_status == "休憩中" and break_start:
+            try:
+                b_st_dt = pd.to_datetime(break_start)
+                if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                disp_b_min += int((now_disp - b_st_dt).total_seconds() / 60)
+            except: pass
+            
+        if current_status == "別業務中" and other_work_start:
+            try:
+                o_st_dt = pd.to_datetime(other_work_start)
+                if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                disp_o_min += int((now_disp - o_st_dt).total_seconds() / 60)
+            except: pass
         
         st.markdown(f"""
             <div style="margin-top: 15px; font-size: 0.85em; display: flex; gap: 15px;">
                 <div style="flex: 1; border-right: 1px dashed #e2e8f0; padding-right: 10px;">
                     <div style="color: #4a5568; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: flex-end;">
-                        <strong>☕ 休憩ログ</strong>
-                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{break_total_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
+                        <strong>☕ 休憩合計</strong>
+                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{disp_b_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
                     </div>
-                    <ul class="log-list" style="margin: 0; padding-left: 20px; color: #718096;">
-                        {b_logs_html if b_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
-                    </ul>
                 </div>
                 <div style="flex: 1; padding-left: 5px;">
                     <div style="color: #4a5568; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: flex-end;">
-                        <strong>🔄 別業務ログ</strong>
-                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{other_work_total_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
+                        <strong>🔄 別業務合計</strong>
+                        <span style="color: #2d3748; font-weight: bold; font-size: 1.1em;">{disp_o_min} <span style="font-size: 0.8em; font-weight: normal;">分</span></span>
                     </div>
-                    <ul class="log-list" style="margin: 0; padding-left: 20px; color: #718096;">
-                        {o_logs_html if o_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
-                    </ul>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # ▼▼▼ 追加: 案件状況の検索カード ▼▼▼
+        # 案件状況の検索カード
         st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #6b46c1; font-weight: bold;'>🔍 案件状況の検索</div>", unsafe_allow_html=True)
         with st.container(border=True):
             search_id = st.text_input("案件ID検索", placeholder="IDの一部を入力して検索", label_visibility="collapsed", key="user_task_search")
@@ -822,7 +540,7 @@ if current_tab == "👤 ユーザー":
                     if found_tasks.empty:
                         st.markdown("<div style='font-size:0.85em; color:#718096;'>該当する案件が見つかりません</div>", unsafe_allow_html=True)
                     else:
-                        for _, t in found_tasks.head(5).iterrows(): # 最新の5件まで表示
+                        for _, t in found_tasks.head(5).iterrows():
                             disp_id = str(t['anken_id']).replace('_fukkatsu', '')
                             assigned = str(t['assigned']).strip() if pd.notna(t['assigned']) and str(t['assigned']).strip() not in ["", "None", "NaN", "未割当"] else "未割当"
                             status = str(t['status'])
@@ -839,9 +557,7 @@ if current_tab == "👤 ユーザー":
                                 <div style="margin-top: 3px; color: #4a5568;">👤 担当: <b style="color: #2c5282;">{assigned}</b> &nbsp;|&nbsp; 🏷️ 状態: <b style="color: {status_color};">{status}</b></div>
                             </div>
                             """, unsafe_allow_html=True)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-    # ▼▼▼ 復活: 誤って削除してしまった右カラム(完了実績・キャンセルログ)のコード ▼▼▼
     with col_right:
         st.markdown(f"""
         <div class="custom-card" style="border-left-color: #38b2ac; margin-bottom: 8px;">
@@ -866,28 +582,17 @@ if current_tab == "👤 ユーザー":
         </div>
         """, unsafe_allow_html=True)
 
-        cancel_logs = user_data["cancel_logs"]
-        cancel_total_min = user_data["cancel_total_min"]
-        cancel_count = user_data["cancel_count"]
-        c_logs_html = "".join([f"<li style='margin-bottom: 2px;'>{log}</li>" for log in cancel_logs[-3:]])
-        
         with st.container(border=True):
             st.markdown(f"""
             <div style="border-left: 4px solid #ed8936; padding-left: 12px; margin-bottom: 8px;">
                 <div style="display: flex; justify-content: space-between;">
-                    <div style="width: 50%;">
-                        <div style="color:#dd6b20; font-weight: bold; margin-bottom: 5px;">🚫 代筆中キャンセル</div>
+                    <div style="width: 100%;">
+                        <div style="color:#dd6b20; font-weight: bold; margin-bottom: 5px;">🚫 代筆中キャンセル合計</div>
                         <div>
                             <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_count}</span> <span style="font-size:0.8em; color: #4a5568;">件</span>
                             <span style="margin: 0 8px; color: #cbd5e0;">|</span>
-                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_total_min}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
+                            <span style="font-size: 1.6em; font-weight: bold; color: #2d3748;">{cancel_min}</span> <span style="font-size:0.8em; color: #4a5568;">分</span>
                         </div>
-                    </div>
-                    <div style="width: 50%; text-align: right;">
-                        <strong style="color: #4a5568; font-size: 0.8em;">追加履歴:</strong>
-                        <ul style="margin: 0; padding-left: 0; list-style-type: none; font-size: 0.8em; color: #718096;">
-                            {c_logs_html if c_logs_html else "<li style='color:#a0aec0;'>記録なし</li>"}
-                        </ul>
                     </div>
                 </div>
             </div>
@@ -903,27 +608,14 @@ if current_tab == "👤 ユーザー":
             with c_col3:
                 st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
                 if st.button("追加", key="add_cancel_btn", use_container_width=True):
-                    now_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime('%H:%M')
-                    memo_str = f" ({input_c_memo})" if input_c_memo else ""
-                    new_log = f"{now_time} - {input_c_min}分{memo_str}"
-                    
-                    new_logs = cancel_logs.copy()
-                    new_logs.append(new_log)
-                    new_count = cancel_count + 1
-                    new_total_min = cancel_total_min + input_c_min
-                    
-                    save_user_work_data(
-                        st.session_state.selected_user, 
-                        current_status, 
-                        other_work_logs, 
-                        other_work_total_min, 
-                        other_work_start_time,
-                        cancel_logs=new_logs,
-                        cancel_total_min=new_total_min,
-                        cancel_count=new_count
-                    )
-                    add_action_log(st.session_state.selected_user, "代筆中キャンセル追加", f"{input_c_min}分 {memo_str}")
-                    st.rerun()
+                    with st.spinner('更新中...'):
+                        new_count = cancel_count + 1
+                        new_total_min = cancel_min + input_c_min
+                        memo_str = f" ({input_c_memo})" if input_c_memo else ""
+                        update_work_data_to_gas(st.session_state.selected_user, cancel_count=new_count, cancel_min=new_total_min)
+                        log_action_to_gas(st.session_state.selected_user, "代筆中キャンセル追加", f"{input_c_min}分 {memo_str}")
+                        fetch_data.clear()
+                        st.rerun()
 
             st.markdown("""
             <div style='margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; text-align: right;'>
@@ -932,18 +624,10 @@ if current_tab == "👤 ユーザー":
                 </a>
             </div>
             """, unsafe_allow_html=True)
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
-        
-        sys_settings = get_system_settings()
-        saved_target_date = sys_settings.get("target_date")
-        
-        if saved_target_date:
-            target_end_date = pd.to_datetime(saved_target_date).date()
-        else:
-            target_end_date = today_date + pd.Timedelta(days=1)
+        target_end_date = pd.to_datetime(st.session_state.target_date_str).date()
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
         
@@ -953,7 +637,6 @@ if current_tab == "👤 ユーザー":
         while current_date <= target_end_date:
             my_active_for_date = my_active_tasks[my_active_tasks['datetime'].dt.date == current_date]
             
-            # ▼▼▼ 修正: "if my_active_for_date.empty:" を外し、インデントを左に寄せて常に抽出を行う ▼▼▼
             other_target_tasks = pd.DataFrame()
             if not df.empty:
                 base_other_condition = (
@@ -963,8 +646,9 @@ if current_tab == "👤 ユーザー":
                     (df['product'] != 'JOBYmini') &
                     (df['fukkatsu'] == False)
                 )
+                # ▼ 例外処理(同行)を考慮したフィルタリング ▼
                 if api_settings.get("exclude_jiei", False):
-                    base_other_condition &= ~df['title'].astype(str).str.contains('/自', na=False)
+                    base_other_condition &= ~df['is_exclude_target']
                     
                 base_other_tasks = df[base_other_condition].copy()
                 
@@ -974,8 +658,10 @@ if current_tab == "👤 ユーザー":
                         def check_skill(row):
                             title = str(row['title'])
                             product = str(row['product'])
+                            is_target = is_exclude_target(title)
                             
-                            if '/自' in title and not user_skills.get('jiei', False):
+                            # 例外(同行)でない完全な自営は、スキルチェックを要する
+                            if is_target and not user_skills.get('jiei', False):
                                 return False
                             if product == 'イツザイ' and not user_skills.get('itsuzai', False):
                                 return False
@@ -990,19 +676,14 @@ if current_tab == "👤 ユーザー":
                     else:
                         other_target_tasks = base_other_tasks.sort_values('datetime')
             
-            # ▼▼▼ 追加: 自分のタスクがある場合、自分の最も早いタスクの時間より「前の時間」のタスクだけ残す ▼▼▼
             if not other_target_tasks.empty and not my_active_for_date.empty:
                 min_my_time = my_active_for_date['datetime'].min()
                 other_target_tasks = other_target_tasks[other_target_tasks['datetime'] < min_my_time]
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
             if not other_target_tasks.empty:
                 has_any_displayed = True
                 date_str = current_date.strftime('%m/%d')
-                if current_date == today_date:
-                    header_text = f"📅 今日 ({date_str}) の待機タスク (他/未割当)"
-                else:
-                    header_text = f"📅 {date_str} の待機タスク (他/未割当)"
+                header_text = f"📅 今日 ({date_str}) の待機タスク (他/未割当)" if current_date == today_date else f"📅 {date_str} の待機タスク (他/未割当)"
                     
                 st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
                 
@@ -1021,14 +702,11 @@ if current_tab == "👤 ユーザー":
                             st.markdown(f"<div style='font-size: 0.85em; color: #4a5568; margin-top: 6px;'>🕒 {t_time} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; ⏳ {duration_m} 分 &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🏷️ {product_str} &nbsp;<span style='color: #cbd5e0;'>|</span>&nbsp; 🆔 {disp_id}</div>", unsafe_allow_html=True)
                         with c_btn:
                             orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
-                            if orig_assign in ["None", "NaN", "未割当"]:
-                                orig_assign = ""
+                            if orig_assign in ["None", "NaN", "未割当"]: orig_assign = ""
                             
-                            # ▼▼▼ 修正: すでに着手中なら無効化 ＆ 同時着手関数に変更 ▼▼▼
                             is_disabled = not active_tasks.empty
                             if st.button("🙋 取得して着手", key=f"take_other_{t['anken_id']}", disabled=is_disabled, use_container_width=True, help="このタスクを自分の担当にして着手します"):
                                 take_and_start_task(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
-                            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                         
                         if idx < len(other_target_tasks) - 1:
                             st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
@@ -1070,17 +748,13 @@ if current_tab == "👤 ユーザー":
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
-                    # ▼▼▼ 修正: SOSリストのボタンも同時着手関数に変更 ▼▼▼
                     is_disabled = not active_tasks.empty
                     if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", use_container_width=True):
                         take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
-                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
-    # ▼▼▼ 修正: active_tasks の定義は上部に移動したので、ここは判定だけ残す ▼▼▼
     if not active_tasks.empty:
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         task = active_tasks.iloc[0]
         task_date = task['datetime'].strftime('%m/%d')
         start_t = task['datetime'].strftime('%H:%M')
@@ -1186,9 +860,7 @@ if current_tab == "👤 ユーザー":
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
-        # ▼▼▼ 修正: ファストパス判定に fp_limit_date を使用 ▼▼▼
         waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
         
         for idx, task in waiting_tasks.iterrows():
@@ -1292,15 +964,14 @@ if current_tab == "👤 ユーザー":
 
     st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 1px #e2e8f0;'>", unsafe_allow_html=True)
     with st.expander("📜 本日の自分の動作ログを確認する", expanded=False):
-        action_logs = get_action_logs()
-        my_logs = [log for log in action_logs if log["user"] == st.session_state.selected_user]
+        my_logs = [log for log in api_action_logs if log["user"] == st.session_state.selected_user]
         
         if not my_logs:
             st.info("本日の間に記録された動作ログはありません。")
         else:
             log_data = []
             for log in my_logs:
-                ts = pd.to_datetime(log["timestamp"]).strftime('%H:%M:%S')
+                ts = pd.to_datetime(log["timestamp"]).tz_convert('Asia/Tokyo').strftime('%H:%M:%S') if pd.notna(log["timestamp"]) else ""
                 log_data.append({
                     "時間": ts,
                     "アクション": log["action"],
@@ -1323,18 +994,13 @@ if current_tab == "👤 ユーザー":
     if current_status == "出社" and active_tasks.empty:
         components.html("""
             <script>
-                // 5分(300,000ミリ秒)後に親画面(Streamlit全体)にポップアップを強制生成する
                 setTimeout(function() {
-                    // すでに表示されていれば重複して作らない
                     if(window.parent.document.getElementById('timeout-overlay-custom')) return;
                     
-                    // 親画面に直接div要素を作成
                     const overlay = window.parent.document.createElement('div');
                     overlay.id = 'timeout-overlay-custom';
-                    // 画面全体を覆うスタイルを設定 (最前面にするため z-index を極端に高くする)
                     overlay.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:9999999; display:flex; justify-content:center; align-items:center; font-family:sans-serif; backdrop-filter:blur(3px);';
                     
-                    // ポップアップの中身
                     overlay.innerHTML = `
                         <div style="background:white; padding:30px; border-radius:12px; text-align:center; max-width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
                             <h2 style="color:#e53e3e; margin-top:0; margin-bottom:15px; font-size:22px; font-weight:bold;">⚠️ 画面の更新が必要です</h2>
@@ -1343,14 +1009,13 @@ if current_tab == "👤 ユーザー":
                             <button onclick="window.parent.location.reload()" style="padding:14px 28px; background:#3182ce; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 2px 4px rgba(49,130,206,0.3);">🔄 画面を更新する</button>
                         </div>
                     `;
-                    // 親画面の body の一番最後に強制追加
                     window.parent.document.body.appendChild(overlay);
                 }, 300000); 
             </script>
         """, height=0)
 
 # ==========================================
-# 6. 管理者タブ
+# 7. 管理者タブ
 # ==========================================
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
@@ -1361,7 +1026,7 @@ elif current_tab == "⚙️ 管理者":
         if is_auto_refresh:
             st_autorefresh(interval=60000, limit=None, key="admin_autorefresh")
     else:
-        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行して再起動してください。")
+        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行してください。")
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -1371,15 +1036,14 @@ elif current_tab == "⚙️ 管理者":
         with col_admin_l:
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
-            sys_settings = get_system_settings()
-            saved_target_date_str = sys_settings.get("target_date")
-            default_target_date = pd.to_datetime(saved_target_date_str).date() if saved_target_date_str else pd.Timestamp.now(tz='Asia/Tokyo').date()
+            saved_target_date_str = st.session_state.target_date_str
+            default_target_date = pd.to_datetime(saved_target_date_str).date()
 
             col_d, col_t = st.columns(2)
             with col_d:
                 target_date = st.date_input("対象日付", default_target_date)
                 if str(target_date) != saved_target_date_str:
-                    save_system_settings("target_date", str(target_date))
+                    st.session_state.target_date_str = str(target_date)
             with col_t:
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
                 
@@ -1388,10 +1052,10 @@ elif current_tab == "⚙️ 管理者":
             
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
             
-            # ▼▼▼ 追加: 除外設定がONなら、抽出結果から自営タスクを隠す ▼▼▼
+            # ▼▼▼ 例外処理(同行)を考慮したフィルタリング ▼▼▼
             if api_settings.get("exclude_jiei", False):
-                filtered_df = filtered_df[~filtered_df['title'].astype(str).str.contains('/自', na=False)].copy()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                filtered_df = filtered_df[~filtered_df['is_exclude_target']].copy()
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
@@ -1420,10 +1084,18 @@ elif current_tab == "⚙️ 管理者":
                 future_days = st.number_input("終了(未来〇日)", min_value=0, max_value=365, value=api_settings.get("future_days", 30))
             with col_s3:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>除外フィルタ</div>", unsafe_allow_html=True)
-                exclude_jiei = st.toggle("🚫 自営タスク一括除外", value=api_settings.get("exclude_jiei", False), help="ONにすると、タイトルに「/自」が含まれるタスクは自動振り分けや各待機リストから完全に消去（無視）されます")
+                exclude_jiei = st.toggle("🚫 自営タスク一括除外", value=api_settings.get("exclude_jiei", False), help="ONにすると、タイトルに「/自」が含まれるタスク（同行等を除く）は自動振り分けから除外されます")
             
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
-                update_settings(past_days, future_days, exclude_jiei)
+                with st.spinner('設定を保存中...'):
+                    payload = {"action": "update_settings", "past_days": past_days, "future_days": future_days, "exclude_jiei": exclude_jiei}
+                    try:
+                        safe_api_post(payload)
+                        log_action_to_gas(st.session_state.selected_user, "設定変更", f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}")
+                        fetch_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"更新に失敗しました: {e}")
 
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
@@ -1439,16 +1111,13 @@ elif current_tab == "⚙️ 管理者":
                 if not target_tasks.empty:
                     target_tasks['date'] = target_tasks['datetime'].dt.date
                     target_tasks['time'] = target_tasks['datetime'].dt.time
-                    target_tasks['is_jiei'] = target_tasks['title'].astype(str).str.contains('/自', na=False)
+                    target_tasks['is_jiei'] = target_tasks['is_exclude_target'] # 例外を除いた純粋な自営
                     target_tasks['is_am'] = target_tasks['time'] <= boundary_time
                     
                     def categorize(row):
-                        if row['is_jiei']:
-                            return '自営'
-                        elif row['is_am']:
-                            return '他営AM'
-                        else:
-                            return '他営PM'
+                        if row['is_jiei']: return '自営'
+                        elif row['is_am']: return '他営AM'
+                        else: return '他営PM'
                             
                     target_tasks['category'] = target_tasks.apply(categorize, axis=1)
                     
@@ -1513,12 +1182,18 @@ elif current_tab == "⚙️ 管理者":
                 new_overtime = st.number_input("残業時間 (分)", min_value=0, max_value=300, step=30, value=current_ot)
             with col_ot2:
                 if st.button("💾 適用して再計算", type="primary", use_container_width=True, key="btn_update_ot"):
-                    update_all_overtime(new_overtime)
+                    with st.spinner(f'全メンバーの残業時間を {new_overtime} 分に設定し、再計算中...'):
+                        payload = {"action": "update_all_overtime", "minutes": new_overtime}
+                        try:
+                            safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "残業時間一括設定", f"全メンバーの残業時間を {new_overtime} 分に設定")
+                            fetch_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"更新に失敗しました: {e}")
 
         with col_admin_r:
             st.markdown("<h4 style='color: #4a5568;'>👥 メンバー稼働ステータス</h4>", unsafe_allow_html=True)
-            
-            task_times = get_task_times()
             
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
@@ -1540,15 +1215,11 @@ elif current_tab == "⚙️ 管理者":
                 if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0): continue
                 if u not in clean_users: clean_users.append(u)
             
-            # ▼▼▼ 追加: 計算用の現在時刻を取得 ▼▼▼
             now_for_calc = pd.Timestamp.now(tz='Asia/Tokyo')
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             for user in clean_users:
                 user_df = df[df['assigned'].fillna('未割当') == user] if not df.empty else pd.DataFrame()
-                
                 mitaiou_count = len(user_df[user_df['status'] == '未対応']) if not user_df.empty else 0
-                
                 completed_df = user_df[user_df['status'] == '完了'] if not user_df.empty else pd.DataFrame()
                 
                 normal_df = completed_df[completed_df['fukkatsu'] == False] if not completed_df.empty else pd.DataFrame()
@@ -1558,29 +1229,32 @@ elif current_tab == "⚙️ 管理者":
                 fukkatsu_df = completed_df[completed_df['fukkatsu'] == True] if not completed_df.empty else pd.DataFrame()
                 fukkatsu_count = len(fukkatsu_df)
                 
-                user_work_data = get_user_work_data(user)
-                other_work_min = user_work_data["other_work_total_min"]
-                break_min = user_work_data["break_total_min"] 
-                user_status = user_work_data["current_status"]
+                user_info = next((m for m in api_members_data if m['name'] == user), {})
+                other_work_min = int(user_info.get("other_work_min", 0))
+                break_min = int(user_info.get("break_min", 0))
+                user_status = user_info.get("status", "出社")
                 
-                # ▼▼▼ 修正: 進行中の経過時間をリアルタイムに計算する処理を追加 ▼▼▼
-                b_start = user_work_data.get("break_start_time")
-                o_start = user_work_data.get("other_work_start_time")
+                b_start = user_info.get("break_start", "")
+                o_start = user_info.get("other_work_start", "")
                 
                 ongoing_break = 0
-                if user_status == "休憩中" and pd.notna(b_start):
-                    if b_start.tzinfo is None: b_start = b_start.tz_localize('Asia/Tokyo')
-                    ongoing_break = int((now_for_calc - b_start).total_seconds() / 60)
+                if user_status == "休憩中" and b_start:
+                    try:
+                        b_st_dt = pd.to_datetime(b_start)
+                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                        ongoing_break = int((now_for_calc - b_st_dt).total_seconds() / 60)
+                    except: pass
                     
                 ongoing_other = 0
-                if user_status == "別業務中" and pd.notna(o_start):
-                    if o_start.tzinfo is None: o_start = o_start.tz_localize('Asia/Tokyo')
-                    ongoing_other = int((now_for_calc - o_start).total_seconds() / 60)
+                if user_status == "別業務中" and o_start:
+                    try:
+                        o_st_dt = pd.to_datetime(o_start)
+                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                        ongoing_other = int((now_for_calc - o_st_dt).total_seconds() / 60)
+                    except: pass
                 
-                # 表示用テキストの作成（確定分と進行中の合計のみ表示）
                 break_display = f"{break_min + ongoing_break} 分"
                 other_display = f"{other_work_min + ongoing_other} 分"
-                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
                 
                 current_action = active_dict.get(user)
                 if current_action:
@@ -1596,8 +1270,8 @@ elif current_tab == "⚙️ 管理者":
                     "完了": comp_count,
                     "完了分数": int(comp_min),
                     "復活音源件数": fukkatsu_count,
-                    "別業務時間": other_display, # ← 変数を変更しました
-                    "休憩時間": break_display,   # ← 変数を変更しました
+                    "別業務時間": other_display, 
+                    "休憩時間": break_display,   
                     "現在の作業": display_action
                 })
                 
@@ -1670,10 +1344,24 @@ elif current_tab == "⚙️ 管理者":
                                 old_row = display_mem_df.loc[idx]
                                 new_row = edited_mem_df.loc[idx]
                                 if not old_row.equals(new_row):
-                                    update_skills(
-                                        new_row['担当者'], new_row['ステータス'], new_row['シフト'],
-                                        bool(new_row['ｲﾂｻﾞｲ']), bool(new_row['ｴｰｼﾞｪﾝﾄ']), bool(new_row['集客']), bool(new_row['自営(/自)'])
-                                    )
+                                    with st.spinner(f'{new_row["担当者"]}さんの設定を保存中...'):
+                                        payload = {
+                                            "action": "update_skills",
+                                            "name": new_row['担当者'],
+                                            "status": new_row['ステータス'],
+                                            "shift": new_row['シフト'],
+                                            "itsuzai": bool(new_row['ｲﾂｻﾞｲ']),
+                                            "agent": bool(new_row['ｴｰｼﾞｪﾝﾄ']),
+                                            "shukyaku": bool(new_row['集客']),
+                                            "jiei": bool(new_row['自営(/自)'])
+                                        }
+                                        try:
+                                            safe_api_post(payload)
+                                            log_action_to_gas(st.session_state.selected_user, "メンバー設定変更", f"{new_row['担当者']} さんのスキル/ステータスを更新")
+                                            fetch_data.clear()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"更新に失敗しました: {e}")
                                     break
                     else:
                         st.info("有効なメンバー設定データがありません。")
@@ -1684,9 +1372,7 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        # ▼▼▼ 修正: ファストパス判定に fp_limit_date を使用 ▼▼▼
         all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
@@ -1712,15 +1398,16 @@ elif current_tab == "⚙️ 管理者":
         in_progress_cases_df['優先度'] = in_progress_cases_df['ステータス'].map(status_priority_prog).fillna(3)
         in_progress_cases_df = in_progress_cases_df.sort_values(['優先度', '日時']).drop('優先度', axis=1).reset_index(drop=True)
         
-        task_times = get_task_times()
-        in_progress_cases_df['開始時間'] = in_progress_cases_df['案件ID'].astype(str).map(task_times).fillna('')
-        
-        in_progress_cols = ['担当者', 'ステータス', '開始時間', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法']
+        in_progress_cols = ['担当者', 'ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法']
         in_progress_cases_df = in_progress_cases_df[in_progress_cols]
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
+        
+        # ▼▼▼ 例外処理(同行)を考慮したフィルタリング ▼▼▼
         if api_settings.get("exclude_jiei", False):
-            waiting_cases_df = waiting_cases_df[~waiting_cases_df['タイトル'].astype(str).str.contains('/自', na=False)].copy()
+            # is_exclude_target関数を適用してTrueのものを除外
+            waiting_cases_df = waiting_cases_df[~waiting_cases_df['タイトル'].apply(is_exclude_target)].copy()
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
@@ -1805,13 +1492,12 @@ elif current_tab == "⚙️ 管理者":
                 in_progress_cases_df,
                 use_container_width=True,
                 hide_index=True,
-                disabled=['ステータス', '開始時間', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
-                column_order=['担当者', 'ステータス', '開始時間', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
+                column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
                     "タイトル": st.column_config.Column("タイトル", width="large"),
                     "担当者": st.column_config.SelectboxColumn("担当者 ✏️", width="small", options=assign_options),
                     "ステータス": st.column_config.Column("ステータス", width="small"),
-                    "開始時間": st.column_config.Column("開始時間", width="small"),
                     "表示用案件ID": st.column_config.Column("案件ID", width="medium"),
                     "案件ID": None, 
                 },
@@ -1852,18 +1538,25 @@ elif current_tab == "⚙️ 管理者":
             st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
-                    reset_system()
+                    with st.spinner('システムを全リセットし、再振り分けを行っています...'):
+                        payload = {"action": "reset_system"}
+                        try:
+                            safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
+                            fetch_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"リセットに失敗しました: {e}")
 
         st.markdown("<hr style='margin: 40px 0 20px 0; border-top: dashed 2px #cbd5e0;'>", unsafe_allow_html=True)
         st.markdown("<h4 style='color: #4a5568;'>📜 本日のシステム動作ログ</h4>", unsafe_allow_html=True)
         
-        action_logs = get_action_logs()
-        if not action_logs:
+        if not api_action_logs:
             st.info("本日の間に記録された動作ログはありません。")
         else:
             log_data = []
-            for log in action_logs:
-                ts = pd.to_datetime(log["timestamp"]).strftime('%H:%M:%S')
+            for log in api_action_logs:
+                ts = pd.to_datetime(log["timestamp"]).tz_convert('Asia/Tokyo').strftime('%H:%M:%S') if pd.notna(log["timestamp"]) else ""
                 log_data.append({
                     "時間": ts,
                     "操作ユーザー": log["user"],
@@ -1886,7 +1579,7 @@ elif current_tab == "⚙️ 管理者":
             )
 
 # ==========================================
-# 7. 監査マニュアルタブ
+# 8. 監査マニュアルタブ
 # ==========================================
 elif current_tab == "📖 監査マニュアル":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>📖 監査マニュアル</h2>", unsafe_allow_html=True)
