@@ -941,7 +941,9 @@ if current_tab == "👤 ユーザー":
         else:
             target_end_date = today_date + pd.Timedelta(days=1)
         
-        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
+        # ▼▼▼ 修正: データが空の時は処理をスキップする安全装置（if not my_tasks.empty else pd.DataFrame()）を追加 ▼▼▼
+        my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])] if not my_tasks.empty else pd.DataFrame()
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         
         current_date = today_date
         has_any_displayed = False
