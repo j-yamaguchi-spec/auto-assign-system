@@ -20,11 +20,14 @@ except ImportError:
 # ==========================================
 st.set_page_config(page_title="自動振り分けシステム", layout="wide", page_icon="⚡")
 
-# 🚨 ここに新しくデプロイしたGASのURLを貼り付けてください
+# 🚨 ここにご自身のGASのURLを貼り付けてください（st.secretsからの読み込みも可能）
 GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec")
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
+
+# ステータスの選択肢（管理画面で使用）
+STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -457,7 +460,7 @@ if current_tab == "👤 ユーザー":
                             fetch_data.clear()
                             st.rerun()
             else:
-                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
+                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中" or current_status == "精査")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "休憩中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
@@ -483,7 +486,7 @@ if current_tab == "👤 ユーザー":
                             fetch_data.clear()
                             st.rerun()
             else:
-                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
+                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中" or current_status == "精査")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "別業務中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
@@ -1300,24 +1303,21 @@ elif current_tab == "⚙️ 管理者":
 
             st.markdown("<hr style='margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
             
+            # ▼▼▼ メンバースキル＆勤怠設定（初期ステータス機能付き） ▼▼▼
             with st.expander("🛠️ メンバースキル＆勤怠設定 (自動振り分け条件) を開く / 閉じる", expanded=False):
                 if api_members_data:
                     mem_df = pd.DataFrame(api_members_data)
-                    clean_mem_data = []
-                    for _, row in mem_df.iterrows():
-                        u = row['name']
-                        if pd.isna(u): continue
-                        u_str = str(u).strip().replace("　", "")
-                        if u_str == "": continue
-                        clean_mem_data.append(row)
+                    # 有効なデータのみ抽出
+                    clean_mem_df = mem_df[mem_df['name'].notna() & (mem_df['name'].str.strip() != "")].copy()
                     
-                    if clean_mem_data:
-                        clean_mem_df = pd.DataFrame(clean_mem_data)
+                    if not clean_mem_df.empty:
                         if 'shift' not in clean_mem_df.columns:
                             clean_mem_df['shift'] = '早番'
-                        
-                        display_mem_df = clean_mem_df[['name', 'status', 'shift', 'itsuzai', 'agent', 'shukyaku', 'jiei']].copy()
-                        display_mem_df.columns = ['担当者', 'ステータス', 'シフト', 'ｲﾂｻﾞｲ', 'ｴｰｼﾞｪﾝﾄ', '集客', '自営(/自)']
+                        if 'default_status' not in clean_mem_df.columns:
+                            clean_mem_df['default_status'] = '出社'
+                            
+                        display_mem_df = clean_mem_df[['name', 'status', 'default_status', 'shift', 'itsuzai', 'agent', 'shukyaku', 'jiei']].copy()
+                        display_mem_df.columns = ['担当者', 'ステータス', '初期設定', 'シフト', 'ｲﾂｻﾞｲ', 'ｴｰｼﾞｪﾝﾄ', '集客', '自営(/自)']
                         
                         calc_skill_height = len(display_mem_df) * 30 + 38
                         
@@ -1329,7 +1329,8 @@ elif current_tab == "⚙️ 管理者":
                             disabled=['担当者'],
                             column_config={
                                 "担当者": st.column_config.Column("担当者", width="small"),
-                                "ステータス": st.column_config.SelectboxColumn("ステータス ✏️", options=["出社", "退勤", "欠勤", "休憩中", "別業務中"], width="small"),
+                                "ステータス": st.column_config.SelectboxColumn("現在の状態 ✏️", options=STATUS_OPTIONS, width="small"),
+                                "初期設定": st.column_config.SelectboxColumn("初期値 ✏️", options=STATUS_OPTIONS, width="small", help="全リセット時にこの状態に戻ります"),
                                 "シフト": st.column_config.SelectboxColumn("シフト ✏️", options=["早番", "中番"], width="small"),
                                 "ｲﾂｻﾞｲ": st.column_config.CheckboxColumn("ｲﾂｻﾞｲ", default=False),
                                 "ｴｰｼﾞｪﾝﾄ": st.column_config.CheckboxColumn("ｴｰｼﾞｪﾝﾄ", default=False),
@@ -1339,16 +1340,17 @@ elif current_tab == "⚙️ 管理者":
                             key="admin_skills_editor"
                         )
                         
+                        # 変更があった場合の保存処理
                         if not edited_mem_df.equals(display_mem_df):
                             for idx in display_mem_df.index:
-                                old_row = display_mem_df.loc[idx]
-                                new_row = edited_mem_df.loc[idx]
-                                if not old_row.equals(new_row):
+                                if not display_mem_df.loc[idx].equals(edited_mem_df.loc[idx]):
+                                    new_row = edited_mem_df.loc[idx]
                                     with st.spinner(f'{new_row["担当者"]}さんの設定を保存中...'):
                                         payload = {
                                             "action": "update_skills",
                                             "name": new_row['担当者'],
                                             "status": new_row['ステータス'],
+                                            "default_status": new_row['初期設定'],
                                             "shift": new_row['シフト'],
                                             "itsuzai": bool(new_row['ｲﾂｻﾞｲ']),
                                             "agent": bool(new_row['ｴｰｼﾞｪﾝﾄ']),
