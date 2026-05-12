@@ -282,11 +282,20 @@ def handle_refresh():
 header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time = fetch_data()
 
-# ★修正ポイント：UIフィルター用の日付と時間をセッションステートに保持して固定する
+# ★修正ポイント：F5リロード対策。URLのクエリパラメータからも取得するように変更
 if "target_date_str" not in st.session_state:
-    st.session_state.target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+    url_date = st.query_params.get("date")
+    if url_date:
+        st.session_state.target_date_str = url_date
+    else:
+        st.session_state.target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+
 if "target_time_str" not in st.session_state:
-    st.session_state.target_time_str = "15:00"
+    url_time = st.query_params.get("time")
+    if url_time:
+        st.session_state.target_time_str = url_time
+    else:
+        st.session_state.target_time_str = "15:00"
 
 fp_limit_date = pd.to_datetime(st.session_state.target_date_str).date()
 
@@ -1038,10 +1047,17 @@ elif current_tab == "⚙️ 管理者":
         with col_admin_l:
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
-            # ★修正ポイント：ウィジェットの変更をセッションステートに同期するコールバック関数
+            # ★修正ポイント：ウィジェットの変更をセッションステートとURLに同期するコールバック関数
             def update_target_datetime():
-                st.session_state.target_date_str = str(st.session_state.admin_target_date)
-                st.session_state.target_time_str = st.session_state.admin_target_time.strftime("%H:%M")
+                new_date = str(st.session_state.admin_target_date)
+                new_time = st.session_state.admin_target_time.strftime("%H:%M")
+                
+                st.session_state.target_date_str = new_date
+                st.session_state.target_time_str = new_time
+                
+                # F5(リロード)対策：URLパラメータにも設定を保存する
+                st.query_params["date"] = new_date
+                st.query_params["time"] = new_time
 
             col_d, col_t = st.columns(2)
             with col_d:
