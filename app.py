@@ -420,7 +420,6 @@ if current_tab == "👤 ユーザー":
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
-        # JSON廃止！GASのapi_members_dataから直接抽出
         user_info = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), {})
         current_status = user_info.get("status", "出社")
         
@@ -437,30 +436,51 @@ if current_tab == "👤 ユーザー":
         <div class="custom-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <div style="font-weight: bold; color: #2d3748;">📅 {today_str}</div>
-                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if current_status=='出社' else '#dd6b20'};">{current_status}</span></div>
+                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if current_status in ['出社', '精査'] else '#dd6b20'};">{current_status}</span></div>
             </div>
         """, unsafe_allow_html=True)
         
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
             if current_status == "休憩中":
-                if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    with st.spinner('更新中...'):
-                        if update_user_status_api(st.session_state.selected_user, "出社"):
-                            now = pd.Timestamp.now(tz='Asia/Tokyo')
-                            add_min = 0
-                            if break_start:
-                                try:
-                                    b_st_dt = pd.to_datetime(break_start)
-                                    if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
-                                    add_min = int((now - b_st_dt).total_seconds() / 60)
-                                except: pass
-                            new_total = break_min + add_min
-                            update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
-                            fetch_data.clear()
-                            st.rerun()
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_b"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "出社"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if break_start:
+                                    try:
+                                        b_st_dt = pd.to_datetime(break_start)
+                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - b_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = break_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
+                                fetch_data.clear()
+                                st.rerun()
+                with r_col2:
+                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_b"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "精査"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if break_start:
+                                    try:
+                                        b_st_dt = pd.to_datetime(break_start)
+                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - b_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = break_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
+                                fetch_data.clear()
+                                st.rerun()
             else:
-                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中" or current_status == "精査")):
+                st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                # 「精査」ステータスでも休憩ボタンを押せるように disabled から除外
+                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "休憩中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
@@ -470,23 +490,44 @@ if current_tab == "👤 ユーザー":
                     
         with btn_c2:
             if current_status == "別業務中":
-                if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    with st.spinner('更新中...'):
-                        if update_user_status_api(st.session_state.selected_user, "出社"):
-                            now = pd.Timestamp.now(tz='Asia/Tokyo')
-                            add_min = 0
-                            if other_work_start:
-                                try:
-                                    o_st_dt = pd.to_datetime(other_work_start)
-                                    if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
-                                    add_min = int((now - o_st_dt).total_seconds() / 60)
-                                except: pass
-                            new_total = other_work_min + add_min
-                            update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
-                            fetch_data.clear()
-                            st.rerun()
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_o"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "出社"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if other_work_start:
+                                    try:
+                                        o_st_dt = pd.to_datetime(other_work_start)
+                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - o_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = other_work_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
+                                fetch_data.clear()
+                                st.rerun()
+                with r_col2:
+                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_o"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "精査"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if other_work_start:
+                                    try:
+                                        o_st_dt = pd.to_datetime(other_work_start)
+                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - o_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = other_work_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
+                                fetch_data.clear()
+                                st.rerun()
             else:
-                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中" or current_status == "精査")):
+                st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
+                # 「精査」ステータスでも別業務ボタンを押せるように disabled から除外
+                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "別業務中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
