@@ -20,11 +20,14 @@ except ImportError:
 # ==========================================
 st.set_page_config(page_title="自動振り分けシステム", layout="wide", page_icon="⚡")
 
-# 🚨 ここに新しくデプロイしたGASのURLを貼り付けてください
+# 🚨 ここにご自身のGASのURLを貼り付けてください（st.secretsからの読み込みも可能）
 GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec")
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
+
+# ステータスの選択肢（管理画面で使用）
+STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
 
 # ==========================================
 # 2. デザインテーマ（カスタムCSS）
@@ -161,7 +164,7 @@ def fetch_data():
             df['is_exclude_target'] = df['title'].apply(is_exclude_target)
         
         members = data.get("members", [])
-        api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False})
+        api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""})
         members_data = data.get("membersData", [])
         api_manual_data = data.get("manualData", [])
         api_fastpass_ids = data.get("fastpassIds", [])
@@ -170,7 +173,7 @@ def fetch_data():
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False}, [], [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""}, [], [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
 
 # ==========================================
 # 4. クラウドデータベース更新用 ヘルパー関数群
@@ -274,7 +277,7 @@ def update_user_status_api(name, status):
         return False
 
 # ==========================================
-# 5. ヘッダー / セッション初期化
+# 5. ヘッダー
 # ==========================================
 def handle_refresh():
     fetch_data.clear()
@@ -282,22 +285,13 @@ def handle_refresh():
 header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time = fetch_data()
 
-# ★修正ポイント：F5リロード対策。URLのクエリパラメータからも取得するように変更
-if "target_date_str" not in st.session_state:
-    url_date = st.query_params.get("date")
-    if url_date:
-        st.session_state.target_date_str = url_date
-    else:
-        st.session_state.target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+# ★ 対象日付をクラウド（GAS）の設定から取得して全体に適用 ★
+today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+global_target_date_str = api_settings.get("target_date", "")
+if not global_target_date_str:
+    global_target_date_str = today_str
 
-if "target_time_str" not in st.session_state:
-    url_time = st.query_params.get("time")
-    if url_time:
-        st.session_state.target_time_str = url_time
-    else:
-        st.session_state.target_time_str = "15:00"
-
-fp_limit_date = pd.to_datetime(st.session_state.target_date_str).date()
+fp_limit_date = pd.to_datetime(global_target_date_str).date()
 
 if not df.empty:
     if 'fukkatsu_min' in df.columns:
@@ -399,8 +393,6 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 # ==========================================
 # 6. メイン画面（ユーザータブ）
 # ==========================================
-today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
-
 if current_tab == "👤 ユーザー":
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
@@ -428,7 +420,6 @@ if current_tab == "👤 ユーザー":
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
-        # JSON廃止！GASのapi_members_dataから直接抽出
         user_info = next((m for m in api_members_data if m['name'] == st.session_state.selected_user), {})
         current_status = user_info.get("status", "出社")
         
@@ -445,29 +436,49 @@ if current_tab == "👤 ユーザー":
         <div class="custom-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <div style="font-weight: bold; color: #2d3748;">📅 {today_str}</div>
-                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if current_status=='出社' else '#dd6b20'};">{current_status}</span></div>
+                <div>ステータス: <span style="font-weight: bold; color: {'#3182ce' if current_status in ['出社', '精査'] else '#dd6b20'};">{current_status}</span></div>
             </div>
         """, unsafe_allow_html=True)
         
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
             if current_status == "休憩中":
-                if st.button("▶️ 休憩から戻る", use_container_width=True):
-                    with st.spinner('更新中...'):
-                        if update_user_status_api(st.session_state.selected_user, "出社"):
-                            now = pd.Timestamp.now(tz='Asia/Tokyo')
-                            add_min = 0
-                            if break_start:
-                                try:
-                                    b_st_dt = pd.to_datetime(break_start)
-                                    if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
-                                    add_min = int((now - b_st_dt).total_seconds() / 60)
-                                except: pass
-                            new_total = break_min + add_min
-                            update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
-                            fetch_data.clear()
-                            st.rerun()
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_b"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "出社"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if break_start:
+                                    try:
+                                        b_st_dt = pd.to_datetime(break_start)
+                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - b_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = break_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
+                                fetch_data.clear()
+                                st.rerun()
+                with r_col2:
+                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_b"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "精査"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if break_start:
+                                    try:
+                                        b_st_dt = pd.to_datetime(break_start)
+                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - b_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = break_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, break_min=new_total, break_start="")
+                                fetch_data.clear()
+                                st.rerun()
             else:
+                st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
                 if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "休憩中"):
@@ -478,22 +489,42 @@ if current_tab == "👤 ユーザー":
                     
         with btn_c2:
             if current_status == "別業務中":
-                if st.button("▶️ 別業務から戻る", use_container_width=True):
-                    with st.spinner('更新中...'):
-                        if update_user_status_api(st.session_state.selected_user, "出社"):
-                            now = pd.Timestamp.now(tz='Asia/Tokyo')
-                            add_min = 0
-                            if other_work_start:
-                                try:
-                                    o_st_dt = pd.to_datetime(other_work_start)
-                                    if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
-                                    add_min = int((now - o_st_dt).total_seconds() / 60)
-                                except: pass
-                            new_total = other_work_min + add_min
-                            update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
-                            fetch_data.clear()
-                            st.rerun()
+                st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_o"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "出社"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if other_work_start:
+                                    try:
+                                        o_st_dt = pd.to_datetime(other_work_start)
+                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - o_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = other_work_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
+                                fetch_data.clear()
+                                st.rerun()
+                with r_col2:
+                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_o"):
+                        with st.spinner('更新中...'):
+                            if update_user_status_api(st.session_state.selected_user, "精査"):
+                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                add_min = 0
+                                if other_work_start:
+                                    try:
+                                        o_st_dt = pd.to_datetime(other_work_start)
+                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        add_min = int((now - o_st_dt).total_seconds() / 60)
+                                    except: pass
+                                new_total = other_work_min + add_min
+                                update_work_data_to_gas(st.session_state.selected_user, other_work_min=new_total, other_work_start="")
+                                fetch_data.clear()
+                                st.rerun()
             else:
+                st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
                 if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "別業務中"):
@@ -502,7 +533,6 @@ if current_tab == "👤 ユーザー":
                             fetch_data.clear()
                             st.rerun()
                     
-        # 表示用のリアルタイム計算
         disp_b_min = break_min
         disp_o_min = other_work_min
         now_disp = pd.Timestamp.now(tz='Asia/Tokyo')
@@ -539,7 +569,6 @@ if current_tab == "👤 ユーザー":
         </div>
         """, unsafe_allow_html=True)
 
-        # 案件状況の検索カード
         st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #6b46c1; font-weight: bold;'>🔍 案件状況の検索</div>", unsafe_allow_html=True)
         with st.container(border=True):
             search_id = st.text_input("案件ID検索", placeholder="IDの一部を入力して検索", label_visibility="collapsed", key="user_task_search")
@@ -638,7 +667,8 @@ if current_tab == "👤 ユーザー":
 
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
-        target_end_date = pd.to_datetime(st.session_state.target_date_str).date()
+        # ★ ここで UIフィルタ用にも global_target_date_str を活用
+        target_end_date = pd.to_datetime(global_target_date_str).date()
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
         
@@ -657,7 +687,6 @@ if current_tab == "👤 ユーザー":
                     (df['product'] != 'JOBYmini') &
                     (df['fukkatsu'] == False)
                 )
-                # ▼ 例外処理(同行)を考慮したフィルタリング ▼
                 if api_settings.get("exclude_jiei", False):
                     base_other_condition &= ~df['is_exclude_target']
                     
@@ -671,7 +700,6 @@ if current_tab == "👤 ユーザー":
                             product = str(row['product'])
                             is_target = is_exclude_target(title)
                             
-                            # 例外(同行)でない完全な自営は、スキルチェックを要する
                             if is_target and not user_skills.get('jiei', False):
                                 return False
                             if product == 'イツザイ' and not user_skills.get('itsuzai', False):
@@ -1047,45 +1075,38 @@ elif current_tab == "⚙️ 管理者":
         with col_admin_l:
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
-            # ★修正ポイント：ウィジェットの変更をセッションステートとURLに同期するコールバック関数
-            def update_target_datetime():
-                new_date = str(st.session_state.admin_target_date)
-                new_time = st.session_state.admin_target_time.strftime("%H:%M")
-                
-                st.session_state.target_date_str = new_date
-                st.session_state.target_time_str = new_time
-                
-                # F5(リロード)対策：URLパラメータにも設定を保存する
-                st.query_params["date"] = new_date
-                st.query_params["time"] = new_time
+            # ★ クラウド（GAS）に保存された日付をデフォルトとして使用 ★
+            saved_target_date_str = api_settings.get("target_date", "")
+            if not saved_target_date_str:
+                saved_target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+            default_target_date = pd.to_datetime(saved_target_date_str).date()
 
             col_d, col_t = st.columns(2)
             with col_d:
-                # keyを指定し、状態をセッションステートと完全に連携させる
-                target_date = st.date_input(
-                    "対象日付", 
-                    value=pd.to_datetime(st.session_state.target_date_str).date(),
-                    key="admin_target_date",
-                    on_change=update_target_datetime
-                )
+                target_date = st.date_input("対象日付", default_target_date)
+                
+                # ▼ 日付が変更されたら即座にGAS(クラウド)に保存する ▼
+                if str(target_date) != saved_target_date_str:
+                    with st.spinner("日付設定を保存中..."):
+                        try:
+                            payload = {"action": "update_target_date", "target_date": str(target_date)}
+                            safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "対象日付変更", f"管理者が抽出対象日付を {target_date} に変更")
+                            fetch_data.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"日付の保存に失敗しました: {e}")
+                            
             with col_t:
-                # 時間も初期化されないように連携させる
-                target_time = st.time_input(
-                    "対象時間 (まで)", 
-                    value=datetime.strptime(st.session_state.target_time_str, "%H:%M").time(),
-                    key="admin_target_time",
-                    on_change=update_target_datetime
-                )
+                target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
                 
             target_datetime = datetime.combine(target_date, target_time)
             target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
             
             filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
             
-            # ▼▼▼ 例外処理(同行)を考慮したフィルタリング ▼▼▼
             if api_settings.get("exclude_jiei", False):
                 filtered_df = filtered_df[~filtered_df['is_exclude_target']].copy()
-            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if filtered_df.empty:
                 st.info(f"{target_date.strftime('%m/%d')} {target_time.strftime('%H:%M')} までのタスクなし")
@@ -1141,7 +1162,7 @@ elif current_tab == "⚙️ 管理者":
                 if not target_tasks.empty:
                     target_tasks['date'] = target_tasks['datetime'].dt.date
                     target_tasks['time'] = target_tasks['datetime'].dt.time
-                    target_tasks['is_jiei'] = target_tasks['is_exclude_target'] # 例外を除いた純粋な自営
+                    target_tasks['is_jiei'] = target_tasks['is_exclude_target'] 
                     target_tasks['is_am'] = target_tasks['time'] <= boundary_time
                     
                     def categorize(row):
@@ -1333,21 +1354,16 @@ elif current_tab == "⚙️ 管理者":
             with st.expander("🛠️ メンバースキル＆勤怠設定 (自動振り分け条件) を開く / 閉じる", expanded=False):
                 if api_members_data:
                     mem_df = pd.DataFrame(api_members_data)
-                    clean_mem_data = []
-                    for _, row in mem_df.iterrows():
-                        u = row['name']
-                        if pd.isna(u): continue
-                        u_str = str(u).strip().replace("　", "")
-                        if u_str == "": continue
-                        clean_mem_data.append(row)
+                    clean_mem_df = mem_df[mem_df['name'].notna() & (mem_df['name'].str.strip() != "")].copy()
                     
-                    if clean_mem_data:
-                        clean_mem_df = pd.DataFrame(clean_mem_data)
+                    if not clean_mem_df.empty:
                         if 'shift' not in clean_mem_df.columns:
                             clean_mem_df['shift'] = '早番'
-                        
-                        display_mem_df = clean_mem_df[['name', 'status', 'shift', 'itsuzai', 'agent', 'shukyaku', 'jiei']].copy()
-                        display_mem_df.columns = ['担当者', 'ステータス', 'シフト', 'ｲﾂｻﾞｲ', 'ｴｰｼﾞｪﾝﾄ', '集客', '自営(/自)']
+                        if 'default_status' not in clean_mem_df.columns:
+                            clean_mem_df['default_status'] = '出社'
+                            
+                        display_mem_df = clean_mem_df[['name', 'status', 'default_status', 'shift', 'itsuzai', 'agent', 'shukyaku', 'jiei']].copy()
+                        display_mem_df.columns = ['担当者', 'ステータス', '初期設定', 'シフト', 'ｲﾂｻﾞｲ', 'ｴｰｼﾞｪﾝﾄ', '集客', '自営(/自)']
                         
                         calc_skill_height = len(display_mem_df) * 30 + 38
                         
@@ -1359,7 +1375,8 @@ elif current_tab == "⚙️ 管理者":
                             disabled=['担当者'],
                             column_config={
                                 "担当者": st.column_config.Column("担当者", width="small"),
-                                "ステータス": st.column_config.SelectboxColumn("ステータス ✏️", options=["出社", "退勤", "欠勤", "休憩中", "別業務中"], width="small"),
+                                "ステータス": st.column_config.SelectboxColumn("現在の状態 ✏️", options=STATUS_OPTIONS, width="small"),
+                                "初期設定": st.column_config.SelectboxColumn("初期値 ✏️", options=STATUS_OPTIONS, width="small", help="全リセット時にこの状態に戻ります"),
                                 "シフト": st.column_config.SelectboxColumn("シフト ✏️", options=["早番", "中番"], width="small"),
                                 "ｲﾂｻﾞｲ": st.column_config.CheckboxColumn("ｲﾂｻﾞｲ", default=False),
                                 "ｴｰｼﾞｪﾝﾄ": st.column_config.CheckboxColumn("ｴｰｼﾞｪﾝﾄ", default=False),
@@ -1371,14 +1388,14 @@ elif current_tab == "⚙️ 管理者":
                         
                         if not edited_mem_df.equals(display_mem_df):
                             for idx in display_mem_df.index:
-                                old_row = display_mem_df.loc[idx]
-                                new_row = edited_mem_df.loc[idx]
-                                if not old_row.equals(new_row):
+                                if not display_mem_df.loc[idx].equals(edited_mem_df.loc[idx]):
+                                    new_row = edited_mem_df.loc[idx]
                                     with st.spinner(f'{new_row["担当者"]}さんの設定を保存中...'):
                                         payload = {
                                             "action": "update_skills",
                                             "name": new_row['担当者'],
                                             "status": new_row['ステータス'],
+                                            "default_status": new_row['初期設定'],
                                             "shift": new_row['シフト'],
                                             "itsuzai": bool(new_row['ｲﾂｻﾞｲ']),
                                             "agent": bool(new_row['ｴｰｼﾞｪﾝﾄ']),
@@ -1433,11 +1450,8 @@ elif current_tab == "⚙️ 管理者":
         
         waiting_cases_df = filtered_all_df[~filtered_all_df['ステータス'].isin(['完了', '着手', '中断'])].copy()
         
-        # ▼▼▼ 例外処理(同行)を考慮したフィルタリング ▼▼▼
         if api_settings.get("exclude_jiei", False):
-            # is_exclude_target関数を適用してTrueのものを除外
             waiting_cases_df = waiting_cases_df[~waiting_cases_df['タイトル'].apply(is_exclude_target)].copy()
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
         status_priority_wait = {'未対応': 1, '取り消し': 2}
         waiting_cases_df['優先度'] = waiting_cases_df['ステータス'].map(status_priority_wait).fillna(3)
