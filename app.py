@@ -9,6 +9,24 @@ import os
 import streamlit.components.v1 as components
 import html as html_lib
 
+# ▼▼▼ 追加: システム概要と機能のヘッダーコメント ▼▼▼
+# ==========================================
+#  自動振り分けシステム フロントエンド (Streamlit/Python)
+# ==========================================
+# 【システム概要と機能】
+# ・GAS(バックエンド)と連携し、案件の自動振り分け・手動管理を行うUIを提供。
+# ・リアルタイムなタスク状況の表示、担当者の手動変更、ステータス変更(着手/完了/中断/取消)。
+# ・各メンバーの勤怠(出社/退勤/休憩/別業務/精査)の管理、および代筆キャンセルの記録。
+# ・直近の完了タスク、中断タスク、緊急(未割当)タスクの抽出と保護。
+# ・管理者画面からのカレンダー取得範囲設定、自営タスクの自動除外設定、残業時間の一括設定。
+# 
+# 【イベント・通信の特徴】
+# ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
+# ・タッチの差による重複取得を防ぐ楽観的ロックのUI連携。
+# ・st.cache_dataを利用した高速なデータ読み込みと、必要なタイミングでのキャッシュクリア。
+# ==========================================
+# ▲▲▲ 追加箇所ここまで ▲▲▲
+
 try:
     from streamlit_autorefresh import st_autorefresh
     HAS_AUTOREFRESH = True
@@ -89,7 +107,9 @@ st.markdown("""
 # ==========================================
 # 3. クラウド通信・バックエンドロジック
 # ==========================================
-def safe_api_post(payload, max_retries=3):
+def safe_api_post(payload, max_retries=5):
+    # ★ Exponential Backoff（指数的バックオフ）を導入: 待機時間を 2秒 → 4秒 → 8秒 と増やす
+    backoff_time = 2
     for attempt in range(max_retries):
         try:
             response = requests.post(GAS_URL, json=payload, timeout=40)
@@ -102,22 +122,27 @@ def safe_api_post(payload, max_retries=3):
                 if result.get("status") == "success":
                     return result
                 elif "混み合っています" in result.get("message", ""):
-                    time.sleep(2)
+                    time.sleep(backoff_time)
+                    backoff_time *= 2
                     continue
                 else:
                     raise Exception(result.get("message", "不明なエラーが発生しました"))
             else:
-                time.sleep(2)
+                time.sleep(backoff_time)
+                backoff_time *= 2
                 continue
         except Exception as e:
             if attempt == max_retries - 1:
                 raise Exception(f"通信エラーが発生しました。詳細: {e}")
-            time.sleep(2)
+            time.sleep(backoff_time)
+            backoff_time *= 2
             continue
             
     raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
 
-def safe_api_get(max_retries=3):
+def safe_api_get(max_retries=5):
+    # ★ Exponential Backoff を取得側にも導入
+    backoff_time = 2
     for attempt in range(max_retries):
         try:
             response = requests.get(GAS_URL, timeout=45)
@@ -132,12 +157,14 @@ def safe_api_get(max_retries=3):
                 else:
                     raise Exception(result.get("message", "不明なエラーが発生しました"))
             else:
-                time.sleep(2)
+                time.sleep(backoff_time)
+                backoff_time *= 2
                 continue
         except Exception as e:
             if attempt == max_retries - 1:
                 raise Exception(f"通信タイムアウトが発生しました。詳細: {e}")
-            time.sleep(2)
+            time.sleep(backoff_time)
+            backoff_time *= 2
             continue
             
     raise Exception("システムが非常に混み合っています。")
