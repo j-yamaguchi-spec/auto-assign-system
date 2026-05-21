@@ -9,12 +9,13 @@ import os
 import streamlit.components.v1 as components
 import html as html_lib
 
+# ▼▼▼ 追加: システム概要と機能のヘッダーコメント ▼▼▼
 # ==========================================
 #  自動振り分けシステム フロントエンド (Streamlit/Python)
 # ==========================================
 # 【システム概要と機能】
 # ・GAS(バックエンド)と連携し、案件の自動振り分け・手動管理を行うUIを提供。
-# ・リアルタイムなタスク状況 of 表示、担当者の手動変更、ステータス変更(着手/完了/中断/取消)。
+# ・リアルタイムなタスク状況の表示、担当者の手動変更、ステータス変更(着手/完了/中断/取消)。
 # ・各メンバーの勤怠(出社/退勤/休憩/別業務/精査)の管理、および代筆キャンセルの記録。
 # ・直近の完了タスク、中断タスク、緊急(未割当)タスクの抽出と保護。
 # ・管理者画面からのカレンダー取得範囲設定、自営タスクの自動除外設定、残業時間の一括設定。
@@ -23,8 +24,8 @@ import html as html_lib
 # ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
 # ・タッチの差による重複取得を防ぐ楽観的ロックのUI連携。
 # ・st.cache_dataを利用した高速なデータ読み込みと、必要なタイミングでのキャッシュクリア。
-# ・【New】すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
 # ==========================================
+# ▲▲▲ 追加箇所ここまで ▲▲▲
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -37,11 +38,13 @@ except ImportError:
 # ==========================================
 st.set_page_config(page_title="自動振り分けシステム", layout="wide", page_icon="⚡")
 
+# 🚨 ここにご自身のGASのURLを貼り付けてください（st.secretsからの読み込みも可能）
 GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3s90ow-zvsGQdlg-MGnKlITd14NOlZJN0Lp05oOU01QsQfkmr5Gnu-PoIoNgbP9NK/exec")
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
 
+# ステータスの選択肢（管理画面で使用）
 STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
 
 # ==========================================
@@ -105,6 +108,7 @@ st.markdown("""
 # 3. クラウド通信・バックエンドロジック
 # ==========================================
 def safe_api_post(payload, max_retries=5):
+    # ★ Exponential Backoff（指数的バックオフ）を導入: 待機時間を 2秒 → 4秒 → 8秒 と増やす
     backoff_time = 2
     for attempt in range(max_retries):
         try:
@@ -137,6 +141,7 @@ def safe_api_post(payload, max_retries=5):
     raise Exception("システムが非常に混み合っています。数秒待ってから再度ボタンを押してください。")
 
 def safe_api_get(max_retries=5):
+    # ★ Exponential Backoff を取得側にも導入
     backoff_time = 2
     for attempt in range(max_retries):
         try:
@@ -164,10 +169,13 @@ def safe_api_get(max_retries=5):
             
     raise Exception("システムが非常に混み合っています。")
 
+# ▼ 例外処理(同行)を判定する関数
 def is_exclude_target(title):
     title_str = str(title) if pd.notna(title) else ""
     is_jiei = "/自" in title_str
+    # 全角/半角の「(同行)」を正規表現で検知（中に「希望」などがあってもOK）
     is_doukou = bool(re.search(r'[（\(]同行.*?[）\)]', title_str))
+    # 自営であり、かつ同行ではないものが「除外対象(True)」
     return is_jiei and not is_doukou
 
 @st.cache_data(ttl=60) 
@@ -179,6 +187,7 @@ def fetch_data():
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
             df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
+            # Pandas側でも除外対象かどうかを判定フラグとして持たせる
             df['is_exclude_target'] = df['title'].apply(is_exclude_target)
         
         members = data.get("members", [])
@@ -196,17 +205,21 @@ def fetch_data():
 # ==========================================
 # 4. クラウドデータベース更新用 ヘルパー関数群
 # ==========================================
+def log_action_to_gas(user, action_name, details):
+    payload = {
+        "action": "add_action_log",
+        "user": user,
+        "log_action": action_name,
+        "details": details
+    }
+    try:
+        safe_api_post(payload)
+    except:
+        pass # ログ書き込みの失敗はシステムを止めない
 
-def update_work_data_to_gas(user, log_action_name="", log_details_text="", **kwargs):
+def update_work_data_to_gas(user, **kwargs):
     payload = {"action": "update_user_work_data", "username": user}
     payload.update(kwargs)
-    
-    # ログ情報を相乗りさせる
-    if log_action_name:
-        payload["log_user"] = st.session_state.selected_user
-        payload["log_action"] = log_action_name
-        payload["log_details"] = log_details_text
-
     try:
         safe_api_post(payload)
     except Exception as e:
@@ -223,14 +236,11 @@ def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, e
             "status": new_status,
             "fukkatsu_min": fukkatsu_min,
             "expected_assign": str(expected_assign),
-            "expected_status": str(expected_status),
-            # ★ ログを相乗り
-            "log_user": st.session_state.selected_user,
-            "log_action": "タスク状態変更",
-            "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更"
+            "expected_status": str(expected_status)
         }
         try:
             safe_api_post(payload) 
+            log_action_to_gas(st.session_state.selected_user, "タスク状態変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -243,14 +253,11 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
             "anken_id": anken_id,
             "assigned": assigned,
             "check_unassigned": check_unassigned,
-            "original_assign": original_assign,
-            # ★ ログを相乗り
-            "log_user": st.session_state.selected_user,
-            "log_action": "担当者手動変更",
-            "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更"
+            "original_assign": original_assign
         }
         try:
             safe_api_post(payload)
+            log_action_to_gas(st.session_state.selected_user, "担当者手動変更", f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -258,32 +265,25 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
 
 def take_and_start_task(anken_id, assigned, original_assign=None):
     with st.spinner('タスクを取得し、即着手しています...'):
-        # 1発で担当変更と即着手、さらにログ相乗りを行う拡張アクションを送信
-        payload = {
+        payload_assign = {
             "action": "update_assign",
             "anken_id": anken_id,
             "assigned": assigned,
             "check_unassigned": False,
-            "original_assign": original_assign,
-            "log_user": assigned,
-            "log_action": "タスク取得・即着手",
-            "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました"
+            "original_assign": original_assign
+        }
+        payload_status = {
+            "action": "update_status",
+            "anken_id": anken_id,
+            "status": "着手",
+            "fukkatsu_min": "",
+            "expected_assign": assigned,
+            "expected_status": "未対応"
         }
         try:
-            # 担当者を割り当てる通信 (GAS側で自動振り分けロジックも走る)
-            safe_api_post(payload)
-            
-            # 続けてその行のステータスを「着手」にする
-            payload_status = {
-                "action": "update_status",
-                "anken_id": anken_id,
-                "status": "着手",
-                "fukkatsu_min": "",
-                "expected_assign": assigned,
-                "expected_status": "未対応"
-            }
+            safe_api_post(payload_assign)
             safe_api_post(payload_status)
-            
+            log_action_to_gas(st.session_state.selected_user, "タスク取得・即着手", f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました")
             fetch_data.clear()
             st.rerun()
         except Exception as e:
@@ -293,14 +293,11 @@ def update_user_status_api(name, status):
     payload = {
         "action": "update_member_status",
         "name": name,
-        "status": status,
-        # ★ ログを相乗り
-        "log_user": st.session_state.selected_user,
-        "log_action": "ステータス変更",
-        "log_details": f"{name} さんが「{status}」に変更"
+        "status": status
     }
     try:
         safe_api_post(payload)
+        log_action_to_gas(st.session_state.selected_user, "ステータス変更", f"{name} さんが「{status}」に変更")
         return True
     except Exception as e:
         st.error(f"GASとの通信に失敗しました。詳細: {e}")
@@ -315,6 +312,7 @@ def handle_refresh():
 header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time = fetch_data()
 
+# ★ 対象日付をクラウド（GAS）の設定から取得して全体に適用 ★
 today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 global_target_date_str = api_settings.get("target_date", "")
 if not global_target_date_str:
@@ -681,14 +679,8 @@ if current_tab == "👤 ユーザー":
                         new_count = cancel_count + 1
                         new_total_min = cancel_min + input_c_min
                         memo_str = f" ({input_c_memo})" if input_c_memo else ""
-                        # ★ ログ情報を直接相乗りさせて送信
-                        update_work_data_to_gas(
-                            st.session_state.selected_user, 
-                            log_action_name="代筆中キャンセル追加", 
-                            log_details_text=f"{input_c_min}分 {memo_str}",
-                            cancel_count=new_count, 
-                            cancel_min=new_total_min
-                        )
+                        update_work_data_to_gas(st.session_state.selected_user, cancel_count=new_count, cancel_min=new_total_min)
+                        log_action_to_gas(st.session_state.selected_user, "代筆中キャンセル追加", f"{input_c_min}分 {memo_str}")
                         fetch_data.clear()
                         st.rerun()
 
@@ -702,6 +694,7 @@ if current_tab == "👤 ユーザー":
 
         now = pd.Timestamp.now(tz='Asia/Tokyo')
         today_date = now.date()
+        # ★ ここで UIフィルタ用にも global_target_date_str を活用
         target_end_date = pd.to_datetime(global_target_date_str).date()
         
         my_active_tasks = my_tasks[my_tasks['status'].isin(['着手', '未対応'])]
@@ -1109,6 +1102,7 @@ elif current_tab == "⚙️ 管理者":
         with col_admin_l:
             st.markdown("<h4 style='color: #4a5568;'>🕒 指定日時までのタスク抽出</h4>", unsafe_allow_html=True)
             
+            # ★ クラウド（GAS）に保存された日付をデフォルトとして使用 ★
             saved_target_date_str = api_settings.get("target_date", "")
             if not saved_target_date_str:
                 saved_target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
@@ -1118,18 +1112,13 @@ elif current_tab == "⚙️ 管理者":
             with col_d:
                 target_date = st.date_input("対象日付", default_target_date)
                 
+                # ▼ 日付が変更されたら即座にGAS(クラウド)に保存する ▼
                 if str(target_date) != saved_target_date_str:
                     with st.spinner("日付設定を保存中..."):
                         try:
-                            payload = {
-                                "action": "update_target_date", 
-                                "target_date": str(target_date),
-                                # ★ ログを相乗り
-                                "log_user": st.session_state.selected_user,
-                                "log_action": "対象日付変更",
-                                "log_details": f"管理者が抽出対象日付を {target_date} に変更"
-                            }
+                            payload = {"action": "update_target_date", "target_date": str(target_date)}
                             safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "対象日付変更", f"管理者が抽出対象日付を {target_date} に変更")
                             fetch_data.clear()
                             st.rerun()
                         except Exception as e:
@@ -1177,18 +1166,10 @@ elif current_tab == "⚙️ 管理者":
             
             if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
                 with st.spinner('設定を保存中...'):
-                    payload = {
-                        "action": "update_settings", 
-                        "past_days": past_days, 
-                        "future_days": future_days, 
-                        "exclude_jiei": exclude_jiei,
-                        # ★ ログを相乗り
-                        "log_user": st.session_state.selected_user,
-                        "log_action": "設定変更",
-                        "log_details": f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}"
-                    }
+                    payload = {"action": "update_settings", "past_days": past_days, "future_days": future_days, "exclude_jiei": exclude_jiei}
                     try:
                         safe_api_post(payload)
+                        log_action_to_gas(st.session_state.selected_user, "設定変更", f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}")
                         fetch_data.clear()
                         st.rerun()
                     except Exception as e:
@@ -1280,16 +1261,10 @@ elif current_tab == "⚙️ 管理者":
             with col_ot2:
                 if st.button("💾 適用して再計算", type="primary", use_container_width=True, key="btn_update_ot"):
                     with st.spinner(f'全メンバーの残業時間を {new_overtime} 分に設定し、再計算中...'):
-                        payload = {
-                            "action": "update_all_overtime", 
-                            "minutes": new_overtime,
-                            # ★ ログを相乗り
-                            "log_user": st.session_state.selected_user,
-                            "log_action": "残業時間一括設定",
-                            "log_details": f"全メンバーの残業時間を {new_overtime} 分に設定"
-                        }
+                        payload = {"action": "update_all_overtime", "minutes": new_overtime}
                         try:
                             safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "残業時間一括設定", f"全メンバーの残業時間を {new_overtime} 分に設定")
                             fetch_data.clear()
                             st.rerun()
                         except Exception as e:
@@ -1452,14 +1427,11 @@ elif current_tab == "⚙️ 管理者":
                                             "itsuzai": bool(new_row['ｲﾂｻﾞｲ']),
                                             "agent": bool(new_row['ｴｰｼﾞｪﾝﾄ']),
                                             "shukyaku": bool(new_row['集客']),
-                                            "jiei": bool(new_row['自営(/自)']),
-                                            # ★ ログを相乗り
-                                            "log_user": st.session_state.selected_user,
-                                            "log_action": "メンバー設定変更",
-                                            "log_details": f"{new_row['担当者']} さんのスキル/ステータスを更新"
+                                            "jiei": bool(new_row['自営(/自)'])
                                         }
                                         try:
                                             safe_api_post(payload)
+                                            log_action_to_gas(st.session_state.selected_user, "メンバー設定変更", f"{new_row['担当者']} さんのスキル/ステータスを更新")
                                             fetch_data.clear()
                                             st.rerun()
                                         except Exception as e:
@@ -1528,7 +1500,7 @@ elif current_tab == "⚙️ 管理者":
         fp_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == True].reset_index(drop=True)
         normal_waiting_df = waiting_cases_display_df[waiting_cases_display_df['is_fp'] == False].reset_index(drop=True)
         
-        if fp_waiting_df.empty && normal_waiting_df.empty:
+        if fp_waiting_df.empty and normal_waiting_df.empty:
             if search_query: st.info(f"「{search_query}」に一致する待機中案件はありません。")
             else: st.success("現在待機中の案件はありません。")
         else:
@@ -1634,19 +1606,14 @@ elif current_tab == "⚙️ 管理者":
         st.markdown("<h4 style='color: #e53e3e;'>🚨 危険エリア (システム全リセット)</h4>", unsafe_allow_html=True)
         
         with st.expander("⚠️ 全データを白紙に戻し、カレンダーから再取得＆再振り分けを実行する", expanded=False):
-            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。")
+            st.warning("**【注意】** この操作を行うと、本日の担当者の振り分け状況、完了ステータス、手動で変更した担当者情報などが**すべて白紙に戻ります**。\n1日の業務がすべて終了した後の「翌日に向けたリセット」や、システムに大きなズレが生じた場合の「緊急復旧」の時のみ使用してください。")
             if st.checkbox("上記を理解した上で、全リセットを実行します。"):
                 if st.button("🔥 実行する (元に戻せません)", type="primary"):
                     with st.spinner('システムを全リセットし、再振り分けを行っています...'):
-                        payload = {
-                            "action": "reset_system",
-                            # ★ ログを相乗り
-                            "log_user": st.session_state.selected_user,
-                            "log_action": "システム全リセット",
-                            "log_details": "全データを初期化し再振り分けを実行"
-                        }
+                        payload = {"action": "reset_system"}
                         try:
                             safe_api_post(payload)
+                            log_action_to_gas(st.session_state.selected_user, "システム全リセット", "全データを初期化し再振り分けを実行")
                             fetch_data.clear()
                             st.rerun()
                         except Exception as e:
@@ -1689,7 +1656,8 @@ elif current_tab == "📖 監査マニュアル":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>📖 監査マニュアル</h2>", unsafe_allow_html=True)
     
     if not api_manual_data:
-        st.warning("現在表示できるデータがありません。")
+        st.warning("現在表示できるデータがありません。（GASからデータを取得できていないか、スプレッドシートが空です）")
+        st.info("※GASのdoGet関数を最新のものに更新しているか確認してください。")
     else:
         st.info("💡 **一括コピー機能:** 以下のカードの**どこでもクリックするだけ**で、中身のテキストがクリップボードに一発でコピーされます！")
         
