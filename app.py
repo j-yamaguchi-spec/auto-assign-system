@@ -186,7 +186,10 @@ def fetch_data():
         api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""})
         members_data = data.get("membersData", [])
         api_manual_data = data.get("manualData", [])
-        api_fastpass_ids = data.get("fastpassIds", [])
+        
+        # ファストパスのIDもここで .0 などを除去して厳密に文字列化しておく
+        api_fastpass_ids = [str(fid).replace('.0', '').strip() for fid in data.get("fastpassIds", [])]
+        
         api_action_logs = data.get("actionLogs", [])
         
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
@@ -762,7 +765,7 @@ if current_tab == "👤 ユーザー":
                 st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
                 
                 # ファストパスの判定と分離
-                other_target_tasks['is_fp'] = other_target_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+                other_target_tasks['is_fp'] = other_target_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
                 fp_tasks = other_target_tasks[other_target_tasks['is_fp'] == True]
                 normal_tasks = other_target_tasks[other_target_tasks['is_fp'] == False]
                 
@@ -770,11 +773,11 @@ if current_tab == "👤 ユーザー":
                 if not fp_tasks.empty:
                     st.markdown("<div style='margin-bottom: 5px; color: #e53e3e; font-weight: bold;'>🔥 【最優先】ファストパス案件</div>", unsafe_allow_html=True)
                     with st.container(border=True):
-                        st.markdown("<div style='border-left: 4px solid #e53e3e; padding-left: 8px; margin: -10px;'>", unsafe_allow_html=True)
                         for idx, (_, t) in enumerate(fp_tasks.iterrows()):
                             t_time = t['datetime'].strftime('%H:%M')
                             disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                            duration_m = int(pd.to_numeric(t['duration'], errors='coerce')) if pd.notna(t['duration']) else 0
+                            d_val = pd.to_numeric(t['duration'], errors='coerce')
+                            duration_m = int(d_val) if pd.notna(d_val) else 0
                             product_str = str(t['product']) if pd.notna(t['product']) else "不明"
                             method_str = str(t['method']) if pd.notna(t['method']) else ""
                             title_str = str(t['title']) if pd.notna(t['title']) else ""
@@ -783,7 +786,7 @@ if current_tab == "👤 ユーザー":
                             c_info, c_btn = st.columns([3.5, 1])
                             with c_info:
                                 st.markdown(f'''
-                                <div style="margin-top: 4px; margin-bottom: 4px;">
+                                <div style="border-left: 4px solid #e53e3e; padding-left: 8px; margin-top: 4px; margin-bottom: 4px;">
                                     <div style="font-weight: bold; color: #e53e3e; font-size: 0.95em; margin-bottom: 2px;">
                                         <span style="color:#805ad5;">{f_icon}</span>{method_str}商談 ({product_str})
                                     </div>
@@ -804,18 +807,17 @@ if current_tab == "👤 ユーザー":
                             
                             if idx < len(fp_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
                         
                 # --- 🔹 通常タスク専用ブロック ---
                 if not normal_tasks.empty:
                     if not fp_tasks.empty:
                         st.markdown("<div style='margin-top: 10px; margin-bottom: 5px; color: #d69e2e; font-weight: bold;'>🔹 通常の待機タスク</div>", unsafe_allow_html=True)
                     with st.container(border=True):
-                        st.markdown("<div style='border-left: 4px solid #ecc94b; padding-left: 8px; margin: -10px;'>", unsafe_allow_html=True)
                         for idx, (_, t) in enumerate(normal_tasks.iterrows()):
                             t_time = t['datetime'].strftime('%H:%M')
                             disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                            duration_m = int(pd.to_numeric(t['duration'], errors='coerce')) if pd.notna(t['duration']) else 0
+                            d_val = pd.to_numeric(t['duration'], errors='coerce')
+                            duration_m = int(d_val) if pd.notna(d_val) else 0
                             product_str = str(t['product']) if pd.notna(t['product']) else "不明"
                             method_str = str(t['method']) if pd.notna(t['method']) else ""
                             title_str = str(t['title']) if pd.notna(t['title']) else ""
@@ -824,7 +826,7 @@ if current_tab == "👤 ユーザー":
                             c_info, c_btn = st.columns([3.5, 1])
                             with c_info:
                                 st.markdown(f'''
-                                <div style="margin-top: 4px; margin-bottom: 4px;">
+                                <div style="border-left: 4px solid #ecc94b; padding-left: 8px; margin-top: 4px; margin-bottom: 4px;">
                                     <div style="font-weight: bold; color: #2d3748; font-size: 0.95em; margin-bottom: 2px;">
                                         <span style="color:#805ad5;">{f_icon}</span>{method_str}商談 ({product_str})
                                     </div>
@@ -845,7 +847,6 @@ if current_tab == "👤 ユーザー":
                             
                             if idx < len(normal_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
             
             current_date += pd.Timedelta(days=1) 
             
@@ -995,7 +996,7 @@ if current_tab == "👤 ユーザー":
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
-        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
         waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
         
         for idx, task in waiting_tasks.iterrows():
@@ -1536,7 +1537,7 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
