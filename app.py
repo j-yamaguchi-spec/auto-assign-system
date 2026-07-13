@@ -7,7 +7,6 @@ import json
 import re
 import os
 import html as html_lib
-import gc  # ★ メモリ掃除用モジュールを追加
 
 # ==========================================
 #  自動振り分けシステム フロントエンド (Streamlit/Python)
@@ -22,9 +21,8 @@ import gc  # ★ メモリ掃除用モジュールを追加
 # 【イベント・通信の特徴】
 # ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
 # ・すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
-# ・【New】外部ライブラリを完全撤廃し、JSベースの自動リロードへ移行（メモリリーク・クラッシュの撲滅）
-# ・【New】gc.collect() によるガベージコレクション（強制メモリ解放）の実装
-# ・【New】最新の st.html() メソッドへの移行により非推奨警告を完全排除
+# ・【New】Segmentation fault 対策: 強制JSリロードと強制GCを完全排除し、システムパニックを撲滅
+# ・【New】ウィジェット状態管理の最適化による裏側Warningの完全消去
 # ==========================================
 
 # ==========================================
@@ -36,6 +34,8 @@ GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3
 
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
+if "last_fetch_time_obj" not in st.session_state:
+    st.session_state.last_fetch_time_obj = pd.Timestamp.now(tz='Asia/Tokyo')
 
 STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
 
@@ -169,7 +169,8 @@ def is_exclude_target(title):
 def fetch_data():
     try:
         data = safe_api_get()
-        fetch_time = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        now_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+        fetch_time = now_obj.strftime("%H:%M:%S")
         
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
@@ -183,13 +184,11 @@ def fetch_data():
         api_fastpass_ids = data.get("fastpassIds", [])
         api_action_logs = data.get("actionLogs", [])
         
-        # ★ メモリ解放: データ取得・生成後に不要なメモリを強制的に掃除
-        gc.collect()
-        
-        return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
+        return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time, now_obj
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""}, [], [], [], [], pd.Timestamp.now(tz='Asia/Tokyo').strftime("%H:%M:%S")
+        now_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+        return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""}, [], [], [], [], now_obj.strftime("%H:%M:%S"), now_obj
 
 # ==========================================
 # 4. クラウドデータベース更新用 ヘルパー関数群
@@ -304,7 +303,8 @@ def handle_refresh():
     fetch_data.clear()
 
 header_container = st.container()
-df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time = fetch_data()
+df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time, fetch_time_obj = fetch_data()
+st.session_state.last_fetch_time_obj = fetch_time_obj
 
 today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
 global_target_date_str = api_settings.get("target_date", "")
@@ -360,19 +360,24 @@ with header_container:
             if url_user and url_user in users and st.session_state.selected_user != url_user:
                 st.session_state.selected_user = url_user
                 
-            def on_user_change():
-                st.query_params["user"] = st.session_state.selected_user
-                
             if not url_user:
                  st.query_params["user"] = st.session_state.selected_user
 
-            st.selectbox(
+            default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
+            
+            # ★ Warning防止策: UI用の独立したKeyを使用し、変更時にSession Stateへ反映する
+            ui_selected_user = st.selectbox(
                 "担当者", 
                 users, 
-                key="selected_user", 
-                on_change=on_user_change,
+                index=default_index,
+                key="ui_user_selector", 
                 label_visibility="collapsed"
             )
+            
+            if ui_selected_user != st.session_state.selected_user:
+                st.session_state.selected_user = ui_selected_user
+                st.query_params["user"] = ui_selected_user
+                st.rerun()
             
         with ctrl_col2:
             url_tab = st.query_params.get("tab")
@@ -413,6 +418,13 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 # ==========================================
 if current_tab == "👤 ユーザー":
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
+    
+    # ★ タイムアウト警告（マイルド仕様）
+    # 最終更新から5分経過している場合、画面上部に警告を表示（強制リロードはしない）
+    current_time_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+    minutes_elapsed = (current_time_obj - st.session_state.last_fetch_time_obj).total_seconds() / 60.0
+    if minutes_elapsed > 5:
+        st.warning(f"⚠️ **最終更新から {int(minutes_elapsed)} 分が経過しています。**\nタスクの重複（バッティング）を防ぐため、作業を始める前に上の「🔄」ボタンを押して画面を最新にしてください。")
     
     my_tasks = pd.DataFrame()
     if not df.empty:
@@ -1112,61 +1124,14 @@ if current_tab == "👤 ユーザー":
                 }
             )
 
-    if current_status == "出社" and active_tasks.empty:
-        st.html("""
-            <script>
-                setTimeout(function() {
-                    if(window.parent.document.getElementById('timeout-overlay-custom')) return;
-                    
-                    const overlay = window.parent.document.createElement('div');
-                    overlay.id = 'timeout-overlay-custom';
-                    overlay.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:9999999; display:flex; justify-content:center; align-items:center; font-family:sans-serif; backdrop-filter:blur(3px);';
-                    
-                    overlay.innerHTML = `
-                        <div style="background:white; padding:30px; border-radius:12px; text-align:center; max-width:450px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
-                            <h2 style="color:#e53e3e; margin-top:0; margin-bottom:15px; font-size:22px; font-weight:bold;">⚠️ 画面の更新が必要です</h2>
-                            <p style="color:#4a5568; font-size:15px; margin-bottom:10px; line-height:1.5;">5分以上操作がなかったため、データが古くなっている可能性があります。</p>
-                            <p style="color:#718096; font-size:13px; margin-bottom:25px;">タスクの重複取得（バッティング）を防ぐため、画面を最新状態に更新してください。</p>
-                            <button onclick="window.parent.location.reload()" style="padding:14px 28px; background:#3182ce; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:16px; box-shadow:0 2px 4px rgba(49,130,206,0.3);">🔄 画面を更新する</button>
-                        </div>
-                    `;
-                    window.parent.document.body.appendChild(overlay);
-                }, 300000); 
-            </script>
-        """)
-
 # ==========================================
 # 7. 管理者タブ
 # ==========================================
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
-    # ★ メモリ不足クラッシュ対策: 外部ライブラリを捨てて JSベースの軽量リロードに変更
-    url_auto_val = st.query_params.get("auto", "false")
-    default_auto = (url_auto_val == "true")
-    
-    def on_auto_refresh_change():
-        if st.session_state.admin_auto_refresh:
-            st.query_params["auto"] = "true"
-        else:
-            st.query_params["auto"] = "false"
-
-    is_auto_refresh = st.toggle(
-        "🔄 自動更新 (3分ごと)", 
-        value=default_auto, 
-        key="admin_auto_refresh",
-        on_change=on_auto_refresh_change,
-        help="オンにすると3分ごとに画面をリロードして最新データを取得します。※ブラウザ更新によりメモリを強制解放しクラッシュを防ぎます。"
-    )
-
-    if is_auto_refresh:
-        st.html("""
-            <script>
-                setTimeout(function() {
-                    window.parent.location.reload();
-                }, 180000);
-            </script>
-        """)
+    # 意図的なJSリロード機能を完全に撤廃し、安全な警告文のみに変更しました
+    st.info("💡 **自動更新について:** サーバーのクラッシュを防ぐため、強制自動更新機能は安全に停止されました。最新情報を取得する際は、画面右上の「🔄 更新ボタン」をご利用ください。")
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -1889,6 +1854,3 @@ elif current_tab == "📖 監査マニュアル":
         """
         
         st.html(html_content)
-
-# スクリプトの最後でも念のためのガベージコレクションを実行
-gc.collect()
