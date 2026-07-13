@@ -6,10 +6,8 @@ import time
 import json
 import re
 import os
-import streamlit.components.v1 as components
-import html as html_lib
 
-# =========================================
+# ==========================================
 #  自動振り分けシステム フロントエンド (Streamlit/Python)
 # ==========================================
 # 【システム概要と機能】
@@ -24,7 +22,8 @@ import html as html_lib
 # ・タッチの差による重複取得を防ぐ楽観的ロックのUI連携。
 # ・st.cache_dataを利用した高速なデータ読み込みと、必要なタイミングでのキャッシュクリア。
 # ・すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
-# ・【New】ファストパス案件の独立ブロック表示とUIの最適化
+# ・ファストパス案件の独立ブロック表示とUIの最適化
+# ・【New】Streamlit最新仕様(width="stretch")への対応と警告(Warning)の排除による動作安定化
 # ==========================================
 
 try:
@@ -186,10 +185,7 @@ def fetch_data():
         api_settings = data.get("settings", {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""})
         members_data = data.get("membersData", [])
         api_manual_data = data.get("manualData", [])
-        
-        # ファストパスのIDもここで .0 などを除去して厳密に文字列化しておく
-        api_fastpass_ids = [str(fid).replace('.0', '').strip() for fid in data.get("fastpassIds", [])]
-        
+        api_fastpass_ids = data.get("fastpassIds", [])
         api_action_logs = data.get("actionLogs", [])
         
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
@@ -205,7 +201,6 @@ def update_work_data_to_gas(user, log_action_name="", log_details_text="", **kwa
     payload = {"action": "update_user_work_data", "username": user}
     payload.update(kwargs)
     
-    # ログ情報を相乗りさせる
     if log_action_name:
         payload["log_user"] = st.session_state.selected_user
         payload["log_action"] = log_action_name
@@ -228,7 +223,6 @@ def update_status(anken_id, new_status, fukkatsu_min="", expected_assign=None, e
             "fukkatsu_min": fukkatsu_min,
             "expected_assign": str(expected_assign),
             "expected_status": str(expected_status),
-            # ★ ログを相乗り
             "log_user": st.session_state.selected_user,
             "log_action": "タスク状態変更",
             "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{new_status}」に変更"
@@ -248,7 +242,6 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
             "assigned": assigned,
             "check_unassigned": check_unassigned,
             "original_assign": original_assign,
-            # ★ ログを相乗り
             "log_user": st.session_state.selected_user,
             "log_action": "担当者手動変更",
             "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を「{assigned if assigned else '未割当'}」に変更"
@@ -262,7 +255,6 @@ def update_assign(anken_id, assigned, check_unassigned=False, original_assign=No
 
 def take_and_start_task(anken_id, assigned, original_assign=None):
     with st.spinner('タスクを取得し、即着手しています...'):
-        # 1発で担当変更と即着手、さらにログ相乗りを行う拡張アクションを送信
         payload = {
             "action": "update_assign",
             "anken_id": anken_id,
@@ -274,10 +266,8 @@ def take_and_start_task(anken_id, assigned, original_assign=None):
             "log_details": f"ID:{str(anken_id).replace('_fukkatsu', '')} を取得し着手しました"
         }
         try:
-            # 担当者を割り当てる通信 (GAS側で自動振り分けロジックも走る)
             safe_api_post(payload)
             
-            # 続けてその行のステータスを「着手」にする
             payload_status = {
                 "action": "update_status",
                 "anken_id": anken_id,
@@ -298,7 +288,6 @@ def update_user_status_api(name, status):
         "action": "update_member_status",
         "name": name,
         "status": status,
-        # ★ ログを相乗り
         "log_user": st.session_state.selected_user,
         "log_action": "ステータス変更",
         "log_details": f"{name} さんが「{status}」に変更"
@@ -373,18 +362,16 @@ with header_container:
             if url_user and url_user in users and st.session_state.selected_user != url_user:
                 st.session_state.selected_user = url_user
                 
-            default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
-            
             def on_user_change():
                 st.query_params["user"] = st.session_state.selected_user
                 
             if not url_user:
                  st.query_params["user"] = st.session_state.selected_user
 
+            # 警告を消すため index ではなく key で Session State とバインディング
             st.selectbox(
                 "担当者", 
                 users, 
-                index=default_index, 
                 key="selected_user", 
                 on_change=on_user_change,
                 label_visibility="collapsed"
@@ -394,11 +381,13 @@ with header_container:
             url_tab = st.query_params.get("tab")
             tab_options = ["👤 ユーザー", "⚙️ 管理者", "📖 監査マニュアル"]
             
-            default_tab_index = 0
-            if url_tab == "admin":
-                default_tab_index = 1
-            elif url_tab == "manual":
-                default_tab_index = 2
+            if "current_tab" not in st.session_state:
+                if url_tab == "admin":
+                    st.session_state.current_tab = "⚙️ 管理者"
+                elif url_tab == "manual":
+                    st.session_state.current_tab = "📖 監査マニュアル"
+                else:
+                    st.session_state.current_tab = "👤 ユーザー"
             
             def on_tab_change():
                 if st.session_state.current_tab == "⚙️ 管理者":
@@ -414,7 +403,6 @@ with header_container:
             current_tab = st.radio(
                 "画面", 
                 tab_options, 
-                index=default_tab_index,
                 horizontal=True, 
                 label_visibility="collapsed", 
                 key="current_tab",
@@ -479,7 +467,7 @@ if current_tab == "👤 ユーザー":
                 st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
                 r_col1, r_col2 = st.columns(2)
                 with r_col1:
-                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_b"):
+                    if st.button("▶️ 出社へ", width="stretch", key="ret_shusha_b"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "出社"):
                                 now = pd.Timestamp.now(tz='Asia/Tokyo')
@@ -495,7 +483,7 @@ if current_tab == "👤 ユーザー":
                                 fetch_data.clear()
                                 st.rerun()
                 with r_col2:
-                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_b"):
+                    if st.button("▶️ 精査へ", width="stretch", key="ret_seisa_b"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "精査"):
                                 now = pd.Timestamp.now(tz='Asia/Tokyo')
@@ -512,7 +500,7 @@ if current_tab == "👤 ユーザー":
                                 st.rerun()
             else:
                 st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
-                if st.button("⏸️ 休憩に入る", use_container_width=True, disabled=(current_status == "別業務中")):
+                if st.button("⏸️ 休憩に入る", width="stretch", disabled=(current_status == "別業務中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "休憩中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
@@ -525,7 +513,7 @@ if current_tab == "👤 ユーザー":
                 st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>戻る先のステータス</div>", unsafe_allow_html=True)
                 r_col1, r_col2 = st.columns(2)
                 with r_col1:
-                    if st.button("▶️ 出社へ", use_container_width=True, key="ret_shusha_o"):
+                    if st.button("▶️ 出社へ", width="stretch", key="ret_shusha_o"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "出社"):
                                 now = pd.Timestamp.now(tz='Asia/Tokyo')
@@ -541,7 +529,7 @@ if current_tab == "👤 ユーザー":
                                 fetch_data.clear()
                                 st.rerun()
                 with r_col2:
-                    if st.button("▶️ 精査へ", use_container_width=True, key="ret_seisa_o"):
+                    if st.button("▶️ 精査へ", width="stretch", key="ret_seisa_o"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "精査"):
                                 now = pd.Timestamp.now(tz='Asia/Tokyo')
@@ -558,7 +546,7 @@ if current_tab == "👤 ユーザー":
                                 st.rerun()
             else:
                 st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
-                if st.button("🔄 別業務に入る", use_container_width=True, disabled=(current_status == "休憩中")):
+                if st.button("🔄 別業務に入る", width="stretch", disabled=(current_status == "休憩中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "別業務中"):
                             now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
@@ -680,7 +668,7 @@ if current_tab == "👤 ユーザー":
                 input_c_memo = st.text_input("メモ", placeholder="案件IDなど", key="input_c_memo", label_visibility="collapsed")
             with c_col3:
                 st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
-                if st.button("追加", key="add_cancel_btn", use_container_width=True):
+                if st.button("追加", key="add_cancel_btn", width="stretch"):
                     with st.spinner('更新中...'):
                         new_count = cancel_count + 1
                         new_total_min = cancel_min + input_c_min
@@ -764,8 +752,7 @@ if current_tab == "👤 ユーザー":
                     
                 st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
                 
-                # ファストパスの判定と分離
-                other_target_tasks['is_fp'] = other_target_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+                other_target_tasks['is_fp'] = other_target_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
                 fp_tasks = other_target_tasks[other_target_tasks['is_fp'] == True]
                 normal_tasks = other_target_tasks[other_target_tasks['is_fp'] == False]
                 
@@ -773,11 +760,11 @@ if current_tab == "👤 ユーザー":
                 if not fp_tasks.empty:
                     st.markdown("<div style='margin-bottom: 5px; color: #e53e3e; font-weight: bold;'>🔥 【最優先】ファストパス案件</div>", unsafe_allow_html=True)
                     with st.container(border=True):
+                        st.markdown("<div style='border-left: 4px solid #e53e3e; padding-left: 8px; margin: -10px;'>", unsafe_allow_html=True)
                         for idx, (_, t) in enumerate(fp_tasks.iterrows()):
                             t_time = t['datetime'].strftime('%H:%M')
-                            disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                            d_val = pd.to_numeric(t['duration'], errors='coerce')
-                            duration_m = int(d_val) if pd.notna(d_val) else 0
+                            disp_id = str(t['anken_id']).replace('.0', '').replace('_fukkatsu', '')
+                            duration_m = int(pd.to_numeric(t['duration'], errors='coerce')) if pd.notna(t['duration']) else 0
                             product_str = str(t['product']) if pd.notna(t['product']) else "不明"
                             method_str = str(t['method']) if pd.notna(t['method']) else ""
                             title_str = str(t['title']) if pd.notna(t['title']) else ""
@@ -786,7 +773,7 @@ if current_tab == "👤 ユーザー":
                             c_info, c_btn = st.columns([3.5, 1])
                             with c_info:
                                 st.markdown(f'''
-                                <div style="border-left: 4px solid #e53e3e; padding-left: 8px; margin-top: 4px; margin-bottom: 4px;">
+                                <div style="margin-top: 4px; margin-bottom: 4px;">
                                     <div style="font-weight: bold; color: #e53e3e; font-size: 0.95em; margin-bottom: 2px;">
                                         <span style="color:#805ad5;">{f_icon}</span>{method_str}商談 ({product_str})
                                     </div>
@@ -802,22 +789,23 @@ if current_tab == "👤 ユーザー":
                                 orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
                                 if orig_assign in ["None", "NaN", "未割当"]: orig_assign = ""
                                 is_disabled = not active_tasks.empty
-                                if st.button("🙋 取得して着手", key=f"take_other_fp_{t['anken_id']}", disabled=is_disabled, use_container_width=True, type="primary"):
+                                if st.button("🙋 取得して着手", key=f"take_other_fp_{t['anken_id']}", disabled=is_disabled, width="stretch", type="primary"):
                                     take_and_start_task(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
                             
                             if idx < len(fp_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
                         
                 # --- 🔹 通常タスク専用ブロック ---
                 if not normal_tasks.empty:
                     if not fp_tasks.empty:
                         st.markdown("<div style='margin-top: 10px; margin-bottom: 5px; color: #d69e2e; font-weight: bold;'>🔹 通常の待機タスク</div>", unsafe_allow_html=True)
                     with st.container(border=True):
+                        st.markdown("<div style='border-left: 4px solid #ecc94b; padding-left: 8px; margin: -10px;'>", unsafe_allow_html=True)
                         for idx, (_, t) in enumerate(normal_tasks.iterrows()):
                             t_time = t['datetime'].strftime('%H:%M')
-                            disp_id = str(t['anken_id']).replace('_fukkatsu', '')
-                            d_val = pd.to_numeric(t['duration'], errors='coerce')
-                            duration_m = int(d_val) if pd.notna(d_val) else 0
+                            disp_id = str(t['anken_id']).replace('.0', '').replace('_fukkatsu', '')
+                            duration_m = int(pd.to_numeric(t['duration'], errors='coerce')) if pd.notna(t['duration']) else 0
                             product_str = str(t['product']) if pd.notna(t['product']) else "不明"
                             method_str = str(t['method']) if pd.notna(t['method']) else ""
                             title_str = str(t['title']) if pd.notna(t['title']) else ""
@@ -826,7 +814,7 @@ if current_tab == "👤 ユーザー":
                             c_info, c_btn = st.columns([3.5, 1])
                             with c_info:
                                 st.markdown(f'''
-                                <div style="border-left: 4px solid #ecc94b; padding-left: 8px; margin-top: 4px; margin-bottom: 4px;">
+                                <div style="margin-top: 4px; margin-bottom: 4px;">
                                     <div style="font-weight: bold; color: #2d3748; font-size: 0.95em; margin-bottom: 2px;">
                                         <span style="color:#805ad5;">{f_icon}</span>{method_str}商談 ({product_str})
                                     </div>
@@ -842,11 +830,12 @@ if current_tab == "👤 ユーザー":
                                 orig_assign = str(t['assigned']).strip() if pd.notna(t['assigned']) else ""
                                 if orig_assign in ["None", "NaN", "未割当"]: orig_assign = ""
                                 is_disabled = not active_tasks.empty
-                                if st.button("🙋 取得して着手", key=f"take_other_{t['anken_id']}", disabled=is_disabled, use_container_width=True):
+                                if st.button("🙋 取得して着手", key=f"take_other_{t['anken_id']}", disabled=is_disabled, width="stretch"):
                                     take_and_start_task(t['anken_id'], st.session_state.selected_user, original_assign=orig_assign)
                             
                             if idx < len(normal_tasks) - 1:
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
             
             current_date += pd.Timedelta(days=1) 
             
@@ -879,13 +868,13 @@ if current_tab == "👤 ユーザー":
                 
                 col_id, col_phone = st.columns(2)
                 with col_id:
-                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    disp_id = str(task['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                     st.markdown(f"<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 {disp_id}</div>", unsafe_allow_html=True)
                 
                 b_col1, b_col2 = st.columns([4, 1.5])
                 with b_col2:
                     is_disabled = not active_tasks.empty
-                    if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", use_container_width=True):
+                    if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", width="stretch"):
                         take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
     
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
@@ -916,7 +905,7 @@ if current_tab == "👤 ユーザー":
             col_id, col_phone = st.columns(2)
             with col_id:
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                disp_id = str(task['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                 st.code(disp_id, language="text")
                 
             with col_phone:
@@ -931,13 +920,13 @@ if current_tab == "👤 ユーザー":
             
             act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
             with act_col1:
-                if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", use_container_width=True):
+                if st.button("✅ 完了", key=f"comp_{task['anken_id']}", type="primary", width="stretch"):
                     update_status(task['anken_id'], "完了", fukkatsu_input, expected_assign=task['assigned'], expected_status=task['status'])
             with act_col2:
-                if st.button("⏸️ 中断", key=f"pause_{task['anken_id']}", use_container_width=True):
+                if st.button("⏸️ 中断", key=f"pause_{task['anken_id']}", width="stretch"):
                     update_status(task['anken_id'], "中断", expected_assign=task['assigned'], expected_status=task['status'])
             with act_col3:
-                if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", use_container_width=True):
+                if st.button("❌ 取消", key=f"cancel_{task['anken_id']}", width="stretch"):
                     update_status(task['anken_id'], "未対応", expected_assign=task['assigned'], expected_status=task['status'])
     else:
         st.info("現在着手中のタスクはありません。下の待機リストから「着手する」を押してください。")
@@ -974,7 +963,7 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    disp_id = str(task['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                     st.code(disp_id, language="text")
                 with col_phone:
                     if phone_str:
@@ -985,7 +974,7 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
-                    if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
+                    if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, width="stretch"):
                         update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     # --- 下段: 待機中のタスクリスト ---
@@ -996,7 +985,7 @@ if current_tab == "👤 ユーザー":
     if waiting_tasks.empty:
         st.success("待機中のタスクはすべて完了しました！🎉")
     else:
-        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
         waiting_tasks = waiting_tasks.sort_values(by=['is_fp', 'datetime'], ascending=[False, True])
         
         for idx, task in waiting_tasks.iterrows():
@@ -1029,7 +1018,7 @@ if current_tab == "👤 ユーザー":
                 col_id, col_phone = st.columns(2)
                 with col_id:
                     st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                    disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                    disp_id = str(task['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                     st.code(disp_id, language="text")
                 with col_phone:
                     if phone_str:
@@ -1040,7 +1029,7 @@ if current_tab == "👤 ユーザー":
                 b_col1, b_col2 = st.columns([4, 1])
                 with b_col2:
                     is_disabled = not active_tasks.empty
-                    if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, use_container_width=True):
+                    if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, width="stretch"):
                         update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     # --- 最下段: 完了済みのタスクリスト ---
@@ -1086,7 +1075,7 @@ if current_tab == "👤 ユーザー":
                     col_id, col_phone, col_action = st.columns([2, 2, 1.2])
                     with col_id:
                         st.markdown("<div style='font-size: 0.8em; color: #718096; margin-bottom: 2px;'>🆔 案件ID</div>", unsafe_allow_html=True)
-                        disp_id = str(task['anken_id']).replace('_fukkatsu', '')
+                        disp_id = str(task['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                         st.code(disp_id, language="text")
                     with col_phone:
                         if phone_str:
@@ -1095,7 +1084,7 @@ if current_tab == "👤 ユーザー":
                             st.code(phone_str, language="text")
                     with col_action:
                         st.markdown("<div style='font-size: 0.8em; color: transparent; margin-bottom: 2px;'>&nbsp;</div>", unsafe_allow_html=True)
-                        if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", use_container_width=True):
+                        if st.button("↩️ 着手へ戻す", key=f"revert_comp_{task['anken_id']}", width="stretch"):
                             update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
     st.markdown("<hr style='margin: 30px 0 15px 0; border-top: dashed 1px #e2e8f0;'>", unsafe_allow_html=True)
@@ -1117,7 +1106,7 @@ if current_tab == "👤 ユーザー":
             log_df = pd.DataFrame(log_data)
             st.dataframe(
                 log_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=300,
                 column_config={
@@ -1128,7 +1117,7 @@ if current_tab == "👤 ユーザー":
             )
 
     if current_status == "出社" and active_tasks.empty:
-        components.html("""
+        st.components.v1.html("""
             <script>
                 setTimeout(function() {
                     if(window.parent.document.getElementById('timeout-overlay-custom')) return;
@@ -1187,7 +1176,6 @@ elif current_tab == "⚙️ 管理者":
                             payload = {
                                 "action": "update_target_date", 
                                 "target_date": str(target_date),
-                                # ★ ログを相乗り
                                 "log_user": st.session_state.selected_user,
                                 "log_action": "対象日付変更",
                                 "log_details": f"管理者が抽出対象日付を {target_date} に変更"
@@ -1217,12 +1205,12 @@ elif current_tab == "⚙️ 管理者":
                 
                 display_df = filtered_df[['datetime', 'anken_id']].copy()
                 display_df['datetime'] = display_df['datetime'].dt.strftime('%m/%d %H:%M')
-                display_df['anken_id'] = display_df['anken_id'].astype(str).str.replace('_fukkatsu', '')
+                display_df['anken_id'] = display_df['anken_id'].astype(str).str.replace('.0', '').replace('_fukkatsu', '')
                 display_df.columns = ['日時', '案件ID']
                 
                 st.dataframe(
                     display_df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -1238,14 +1226,13 @@ elif current_tab == "⚙️ 管理者":
                 st.markdown("<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>除外フィルタ</div>", unsafe_allow_html=True)
                 exclude_jiei = st.toggle("🚫 自営タスク一括除外", value=api_settings.get("exclude_jiei", False), help="ONにすると、タイトルに「/自」が含まれるタスク（同行等を除く）は自動振り分けから除外されます")
             
-            if st.button("💾 設定を保存して再取得", type="primary", use_container_width=True):
+            if st.button("💾 設定を保存して再取得", type="primary", width="stretch"):
                 with st.spinner('設定を保存中...'):
                     payload = {
                         "action": "update_settings", 
                         "past_days": past_days, 
                         "future_days": future_days, 
                         "exclude_jiei": exclude_jiei,
-                        # ★ ログを相乗り
                         "log_user": st.session_state.selected_user,
                         "log_action": "設定変更",
                         "log_details": f"自営一括除外: {'ON' if exclude_jiei else 'OFF'}"
@@ -1318,7 +1305,7 @@ elif current_tab == "⚙️ 管理者":
             
             st.dataframe(
                 upcoming_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config={
                     "日付（曜日）": st.column_config.Column("日付（曜日）", width="small"),
@@ -1341,12 +1328,11 @@ elif current_tab == "⚙️ 管理者":
             with col_ot1:
                 new_overtime = st.number_input("残業時間 (分)", min_value=0, max_value=300, step=30, value=current_ot)
             with col_ot2:
-                if st.button("💾 適用して再計算", type="primary", use_container_width=True, key="btn_update_ot"):
+                if st.button("💾 適用して再計算", type="primary", width="stretch", key="btn_update_ot"):
                     with st.spinner(f'全メンバーの残業時間を {new_overtime} 分に設定し、再計算中...'):
                         payload = {
                             "action": "update_all_overtime", 
                             "minutes": new_overtime,
-                            # ★ ログを相乗り
                             "log_user": st.session_state.selected_user,
                             "log_action": "残業時間一括設定",
                             "log_details": f"全メンバーの残業時間を {new_overtime} 分に設定"
@@ -1364,7 +1350,7 @@ elif current_tab == "⚙️ 管理者":
             active_df = df[df['status'] == '着手'] if not df.empty else pd.DataFrame()
             active_dict = {}
             for _, row in active_df.iterrows():
-                disp_id = str(row['anken_id']).replace('_fukkatsu', '')
+                disp_id = str(row['anken_id']).replace('.0', '').replace('_fukkatsu', '')
                 active_dict[row['assigned']] = disp_id
                 
             summary_data = []
@@ -1447,7 +1433,7 @@ elif current_tab == "⚙️ 管理者":
                 
                 st.dataframe(
                     sum_df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=calc_height,
                     column_config={
@@ -1484,7 +1470,7 @@ elif current_tab == "⚙️ 管理者":
                         
                         edited_mem_df = st.data_editor(
                             display_mem_df,
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                             height=calc_skill_height,
                             disabled=['担当者'],
@@ -1516,7 +1502,6 @@ elif current_tab == "⚙️ 管理者":
                                             "agent": bool(new_row['ｴｰｼﾞｪﾝﾄ']),
                                             "shukyaku": bool(new_row['集客']),
                                             "jiei": bool(new_row['自営(/自)']),
-                                            # ★ ログを相乗り
                                             "log_user": st.session_state.selected_user,
                                             "log_action": "メンバー設定変更",
                                             "log_details": f"{new_row['担当者']} さんのスキル/ステータスを更新"
@@ -1537,12 +1522,12 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '').strip() in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        all_display_df['is_fp'] = all_display_df.apply(lambda r: str(r['anken_id']).replace('.0', '').replace('_fukkatsu', '') in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
         all_display_df['担当者'] = all_display_df['担当者'].fillna('')
-        all_display_df['表示用案件ID'] = all_display_df['案件ID'].astype(str).str.replace('_fukkatsu', '')
+        all_display_df['表示用案件ID'] = all_display_df['案件ID'].astype(str).replace('.0', '').str.replace('_fukkatsu', '')
         
         unique_products = all_display_df['商材'].dropna().unique().tolist()
         default_products = [p for p in unique_products if p != "JOBYmini"]
@@ -1599,7 +1584,7 @@ elif current_tab == "⚙️ 管理者":
                 st.markdown("<div style='margin-bottom: 5px; color: #e53e3e; font-weight: bold;'>🔥 優先タスク (ファストパス)</div>", unsafe_allow_html=True)
                 edited_fp_df = st.data_editor(
                     fp_waiting_df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
                     column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
@@ -1624,7 +1609,7 @@ elif current_tab == "⚙️ 管理者":
                     st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #4a5568; font-weight: bold;'>🔹 通常タスク</div>", unsafe_allow_html=True)
                 edited_normal_df = st.data_editor(
                     normal_waiting_df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp'],
                     column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
@@ -1652,7 +1637,7 @@ elif current_tab == "⚙️ 管理者":
         else:
             edited_inprogress_df = st.data_editor(
                 in_progress_cases_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 disabled=['ステータス', '日時', '案件ID', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
@@ -1680,7 +1665,7 @@ elif current_tab == "⚙️ 管理者":
         else:
             st.dataframe(
                 completed_cases_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_order=['担当者', 'ステータス', '日時', '表示用案件ID', 'タイトル', '分数', '商材', '商談方法'],
                 column_config={
@@ -1703,7 +1688,6 @@ elif current_tab == "⚙️ 管理者":
                     with st.spinner('システムを全リセットし、再振り分けを行っています...'):
                         payload = {
                             "action": "reset_system",
-                            # ★ ログを相乗り
                             "log_user": st.session_state.selected_user,
                             "log_action": "システム全リセット",
                             "log_details": "全データを初期化し再振り分けを実行"
@@ -1734,7 +1718,7 @@ elif current_tab == "⚙️ 管理者":
             log_df = pd.DataFrame(log_data)
             st.dataframe(
                 log_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=400,
                 column_config={
@@ -1894,4 +1878,4 @@ elif current_tab == "📖 監査マニュアル":
         </html>
         """
         
-        components.html(html_content, height=800, scrolling=True)
+        st.components.v1.html(html_content, height=800, scrolling=True)
