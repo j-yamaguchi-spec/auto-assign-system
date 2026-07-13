@@ -21,8 +21,8 @@ import html as html_lib
 # 【イベント・通信の特徴】
 # ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
 # ・すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
-# ・【New】Segmentation fault 対策: 強制JSリロードと強制GCを完全排除し、システムパニックを撲滅
-# ・【New】ウィジェット状態管理の最適化による裏側Warningの完全消去
+# ・【New】Segmentation fault 対策: PyArrowのクラッシュバグを回避するため、
+#   すべての日時データを「タイムゾーンなし（tz-naive）」に完全統一してメモリ破壊を撲滅
 # ==========================================
 
 # ==========================================
@@ -35,7 +35,8 @@ GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
 if "last_fetch_time_obj" not in st.session_state:
-    st.session_state.last_fetch_time_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+    # ★ タイムゾーンなし (tz-naive) で現在時刻を取得
+    st.session_state.last_fetch_time_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
 
 STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
 
@@ -169,12 +170,17 @@ def is_exclude_target(title):
 def fetch_data():
     try:
         data = safe_api_get()
-        now_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+        # ★ セグフォ対策: タイムゾーンを持たない現在時刻にする
+        now_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
         fetch_time = now_obj.strftime("%H:%M:%S")
         
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime']).dt.tz_convert('Asia/Tokyo')
+            # ★ セグフォ対策: タイムゾーン情報(Asia/Tokyo)を消去し tz-naive な日時にする
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            if df['datetime'].dt.tz is not None:
+                df['datetime'] = df['datetime'].dt.tz_convert('Asia/Tokyo').dt.tz_localize(None)
+            
             df['is_exclude_target'] = df['title'].apply(is_exclude_target)
         
         members = data.get("members", [])
@@ -187,7 +193,7 @@ def fetch_data():
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time, now_obj
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
-        now_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+        now_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
         return pd.DataFrame(), [], {"past_days": 7, "future_days": 30, "exclude_jiei": False, "target_date": ""}, [], [], [], [], now_obj.strftime("%H:%M:%S"), now_obj
 
 # ==========================================
@@ -306,7 +312,7 @@ header_container = st.container()
 df, api_members, api_settings, api_members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time, fetch_time_obj = fetch_data()
 st.session_state.last_fetch_time_obj = fetch_time_obj
 
-today_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+today_str = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None).strftime("%Y-%m-%d")
 global_target_date_str = api_settings.get("target_date", "")
 if not global_target_date_str:
     global_target_date_str = today_str
@@ -365,7 +371,6 @@ with header_container:
 
             default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
             
-            # ★ Warning防止策: UI用の独立したKeyを使用し、変更時にSession Stateへ反映する
             ui_selected_user = st.selectbox(
                 "担当者", 
                 users, 
@@ -419,9 +424,7 @@ st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 if current_tab == "👤 ユーザー":
     st.info(f"💡 **ヒント:** 右上の担当者を選んだ状態でこの画面（URL）をブックマークすると、次回から直接 **{st.session_state.selected_user}** さんのページが開きます。")
     
-    # ★ タイムアウト警告（マイルド仕様）
-    # 最終更新から5分経過している場合、画面上部に警告を表示（強制リロードはしない）
-    current_time_obj = pd.Timestamp.now(tz='Asia/Tokyo')
+    current_time_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
     minutes_elapsed = (current_time_obj - st.session_state.last_fetch_time_obj).total_seconds() / 60.0
     if minutes_elapsed > 5:
         st.warning(f"⚠️ **最終更新から {int(minutes_elapsed)} 分が経過しています。**\nタスクの重複（バッティング）を防ぐため、作業を始める前に上の「🔄」ボタンを押して画面を最新にしてください。")
@@ -479,12 +482,13 @@ if current_tab == "👤 ユーザー":
                     if st.button("▶️ 出社へ", width="stretch", key="ret_shusha_b"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "出社"):
-                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
                                 add_min = 0
                                 if break_start:
                                     try:
                                         b_st_dt = pd.to_datetime(break_start)
-                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        if b_st_dt.tzinfo is not None:
+                                            b_st_dt = b_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                                         add_min = int((now - b_st_dt).total_seconds() / 60)
                                     except: pass
                                 new_total = break_min + add_min
@@ -495,12 +499,13 @@ if current_tab == "👤 ユーザー":
                     if st.button("▶️ 精査へ", width="stretch", key="ret_seisa_b"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "精査"):
-                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
                                 add_min = 0
                                 if break_start:
                                     try:
                                         b_st_dt = pd.to_datetime(break_start)
-                                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                                        if b_st_dt.tzinfo is not None:
+                                            b_st_dt = b_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                                         add_min = int((now - b_st_dt).total_seconds() / 60)
                                     except: pass
                                 new_total = break_min + add_min
@@ -512,7 +517,7 @@ if current_tab == "👤 ユーザー":
                 if st.button("⏸️ 休憩に入る", width="stretch", disabled=(current_status == "別業務中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "休憩中"):
-                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
+                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None).isoformat()
                             update_work_data_to_gas(st.session_state.selected_user, break_start=now_str)
                             fetch_data.clear()
                             st.rerun()
@@ -525,12 +530,13 @@ if current_tab == "👤 ユーザー":
                     if st.button("▶️ 出社へ", width="stretch", key="ret_shusha_o"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "出社"):
-                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
                                 add_min = 0
                                 if other_work_start:
                                     try:
                                         o_st_dt = pd.to_datetime(other_work_start)
-                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        if o_st_dt.tzinfo is not None:
+                                            o_st_dt = o_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                                         add_min = int((now - o_st_dt).total_seconds() / 60)
                                     except: pass
                                 new_total = other_work_min + add_min
@@ -541,12 +547,13 @@ if current_tab == "👤 ユーザー":
                     if st.button("▶️ 精査へ", width="stretch", key="ret_seisa_o"):
                         with st.spinner('更新中...'):
                             if update_user_status_api(st.session_state.selected_user, "精査"):
-                                now = pd.Timestamp.now(tz='Asia/Tokyo')
+                                now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
                                 add_min = 0
                                 if other_work_start:
                                     try:
                                         o_st_dt = pd.to_datetime(other_work_start)
-                                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                                        if o_st_dt.tzinfo is not None:
+                                            o_st_dt = o_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                                         add_min = int((now - o_st_dt).total_seconds() / 60)
                                     except: pass
                                 new_total = other_work_min + add_min
@@ -558,26 +565,28 @@ if current_tab == "👤 ユーザー":
                 if st.button("🔄 別業務に入る", width="stretch", disabled=(current_status == "休憩中")):
                     with st.spinner('更新中...'):
                         if update_user_status_api(st.session_state.selected_user, "別業務中"):
-                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').isoformat()
+                            now_str = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None).isoformat()
                             update_work_data_to_gas(st.session_state.selected_user, other_work_start=now_str)
                             fetch_data.clear()
                             st.rerun()
                     
         disp_b_min = break_min
         disp_o_min = other_work_min
-        now_disp = pd.Timestamp.now(tz='Asia/Tokyo')
+        now_disp = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
         
         if current_status == "休憩中" and break_start:
             try:
                 b_st_dt = pd.to_datetime(break_start)
-                if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                if b_st_dt.tzinfo is not None:
+                    b_st_dt = b_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                 disp_b_min += int((now_disp - b_st_dt).total_seconds() / 60)
             except: pass
             
         if current_status == "別業務中" and other_work_start:
             try:
                 o_st_dt = pd.to_datetime(other_work_start)
-                if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                if o_st_dt.tzinfo is not None:
+                    o_st_dt = o_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                 disp_o_min += int((now_disp - o_st_dt).total_seconds() / 60)
             except: pass
         
@@ -700,7 +709,7 @@ if current_tab == "👤 ユーザー":
             </div>
             """, unsafe_allow_html=True)
 
-        now = pd.Timestamp.now(tz='Asia/Tokyo')
+        now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
         today_date = now.date()
         target_end_date = pd.to_datetime(global_target_date_str).date()
         
@@ -1104,7 +1113,14 @@ if current_tab == "👤 ユーザー":
         else:
             log_data = []
             for log in my_logs:
-                ts = pd.to_datetime(log["timestamp"]).tz_convert('Asia/Tokyo').strftime('%H:%M:%S') if pd.notna(log["timestamp"]) else ""
+                ts = ""
+                if pd.notna(log["timestamp"]):
+                    ts_dt = pd.to_datetime(log["timestamp"])
+                    # ★ セグフォ対策: タイムゾーン情報がある場合は tz-naive に変換
+                    if getattr(ts_dt, 'tzinfo', None) is not None:
+                        ts_dt = ts_dt.tz_convert('Asia/Tokyo').tz_localize(None)
+                    ts = ts_dt.strftime('%H:%M:%S')
+                    
                 log_data.append({
                     "時間": ts,
                     "アクション": log["action"],
@@ -1130,7 +1146,6 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
-    # 意図的なJSリロード機能を完全に撤廃し、安全な警告文のみに変更しました
     st.info("💡 **自動更新について:** サーバーのクラッシュを防ぐため、強制自動更新機能は安全に停止されました。最新情報を取得する際は、画面右上の「🔄 更新ボタン」をご利用ください。")
 
     if df.empty:
@@ -1143,7 +1158,7 @@ elif current_tab == "⚙️ 管理者":
             
             saved_target_date_str = api_settings.get("target_date", "")
             if not saved_target_date_str:
-                saved_target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').strftime("%Y-%m-%d")
+                saved_target_date_str = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None).strftime("%Y-%m-%d")
             default_target_date = pd.to_datetime(saved_target_date_str).date()
 
             col_d, col_t = st.columns(2)
@@ -1170,9 +1185,10 @@ elif current_tab == "⚙️ 管理者":
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
                 
             target_datetime = datetime.combine(target_date, target_time)
-            target_dt_tz = pd.to_datetime(target_datetime).tz_localize('Asia/Tokyo')
+            # ★ セグフォ対策: タイムゾーン情報を持たない状態で比較する
+            target_dt_naive = pd.to_datetime(target_datetime)
             
-            filtered_df = df[(df['datetime'] <= target_dt_tz) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
+            filtered_df = df[(df['datetime'] <= target_dt_naive) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消']))].copy()
             
             if api_settings.get("exclude_jiei", False):
                 filtered_df = filtered_df[~filtered_df['is_exclude_target']].copy()
@@ -1257,7 +1273,7 @@ elif current_tab == "⚙️ 管理者":
             else:
                 task_counts = {}
 
-            now = pd.Timestamp.now(tz='Asia/Tokyo')
+            now = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
             today_date = now.date()
             youbi_list = ['月', '火', '水', '木', '金', '土', '日']
             
@@ -1347,7 +1363,7 @@ elif current_tab == "⚙️ 管理者":
                 if u == "未割当" and (df.empty or len(df[df['assigned'].fillna('未割当') == '未割当']) == 0): continue
                 if u not in clean_users: clean_users.append(u)
             
-            now_for_calc = pd.Timestamp.now(tz='Asia/Tokyo')
+            now_for_calc = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
             
             for user in clean_users:
                 user_df = df[df['assigned'].fillna('未割当') == user] if not df.empty else pd.DataFrame()
@@ -1373,7 +1389,8 @@ elif current_tab == "⚙️ 管理者":
                 if user_status == "休憩中" and b_start:
                     try:
                         b_st_dt = pd.to_datetime(b_start)
-                        if b_st_dt.tzinfo is None: b_st_dt = b_st_dt.tz_localize('Asia/Tokyo')
+                        if b_st_dt.tzinfo is not None:
+                            b_st_dt = b_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                         ongoing_break = int((now_for_calc - b_st_dt).total_seconds() / 60)
                     except: pass
                     
@@ -1381,7 +1398,8 @@ elif current_tab == "⚙️ 管理者":
                 if user_status == "別業務中" and o_start:
                     try:
                         o_st_dt = pd.to_datetime(o_start)
-                        if o_st_dt.tzinfo is None: o_st_dt = o_st_dt.tz_localize('Asia/Tokyo')
+                        if o_st_dt.tzinfo is not None:
+                            o_st_dt = o_st_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                         ongoing_other = int((now_for_calc - o_st_dt).total_seconds() / 60)
                     except: pass
                 
@@ -1687,7 +1705,13 @@ elif current_tab == "⚙️ 管理者":
         else:
             log_data = []
             for log in api_action_logs:
-                ts = pd.to_datetime(log["timestamp"]).tz_convert('Asia/Tokyo').strftime('%H:%M:%S') if pd.notna(log["timestamp"]) else ""
+                ts = ""
+                if pd.notna(log["timestamp"]):
+                    ts_dt = pd.to_datetime(log["timestamp"])
+                    if getattr(ts_dt, 'tzinfo', None) is not None:
+                        ts_dt = ts_dt.tz_convert('Asia/Tokyo').tz_localize(None)
+                    ts = ts_dt.strftime('%H:%M:%S')
+                    
                 log_data.append({
                     "時間": ts,
                     "操作ユーザー": log["user"],
