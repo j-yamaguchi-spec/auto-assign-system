@@ -9,7 +9,7 @@ import os
 import streamlit.components.v1 as components
 import html as html_lib
 
-# ==========================================
+# =========================================
 #  自動振り分けシステム フロントエンド (Streamlit/Python)
 # ==========================================
 # 【システム概要と機能】
