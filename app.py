@@ -6,6 +6,8 @@ import time
 import json
 import re
 import os
+import html as html_lib
+import gc  # ★ メモリ掃除用モジュールを追加
 
 # ==========================================
 #  自動振り分けシステム フロントエンド (Streamlit/Python)
@@ -19,19 +21,11 @@ import os
 # 
 # 【イベント・通信の特徴】
 # ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
-# ・タッチの差による重複取得を防ぐ楽観的ロックのUI連携。
-# ・st.cache_dataを利用した高速なデータ読み込みと、必要なタイミングでのキャッシュクリア。
 # ・すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
-# ・ファストパス案件の独立ブロック表示とUIの最適化
-# ・Streamlit最新仕様(width="stretch")への対応と警告(Warning)の排除による動作安定化
-# ・【New】メモリ不足クラッシュ対策: 自動更新をデフォルトOFF ＆ 3分間隔に緩和
+# ・【New】外部ライブラリを完全撤廃し、JSベースの自動リロードへ移行（メモリリーク・クラッシュの撲滅）
+# ・【New】gc.collect() によるガベージコレクション（強制メモリ解放）の実装
+# ・【New】最新の st.html() メソッドへの移行により非推奨警告を完全排除
 # ==========================================
-
-try:
-    from streamlit_autorefresh import st_autorefresh
-    HAS_AUTOREFRESH = True
-except ImportError:
-    HAS_AUTOREFRESH = False
 
 # ==========================================
 # 1. 初期設定と定数
@@ -188,6 +182,9 @@ def fetch_data():
         api_manual_data = data.get("manualData", [])
         api_fastpass_ids = data.get("fastpassIds", [])
         api_action_logs = data.get("actionLogs", [])
+        
+        # ★ メモリ解放: データ取得・生成後に不要なメモリを強制的に掃除
+        gc.collect()
         
         return df, members, api_settings, members_data, api_manual_data, api_fastpass_ids, api_action_logs, fetch_time
     except Exception as e:
@@ -369,7 +366,6 @@ with header_container:
             if not url_user:
                  st.query_params["user"] = st.session_state.selected_user
 
-            # 警告を消すため index ではなく key で Session State とバインディング
             st.selectbox(
                 "担当者", 
                 users, 
@@ -1117,8 +1113,7 @@ if current_tab == "👤 ユーザー":
             )
 
     if current_status == "出社" and active_tasks.empty:
-        st.components.v1.iframe("about:blank", height=0) # iframeを安全に使うためのダミー配置
-        st.markdown("""
+        st.html("""
             <script>
                 setTimeout(function() {
                     if(window.parent.document.getElementById('timeout-overlay-custom')) return;
@@ -1138,7 +1133,7 @@ if current_tab == "👤 ユーザー":
                     window.parent.document.body.appendChild(overlay);
                 }, 300000); 
             </script>
-        """, unsafe_allow_html=True)
+        """)
 
 # ==========================================
 # 7. 管理者タブ
@@ -1146,15 +1141,32 @@ if current_tab == "👤 ユーザー":
 elif current_tab == "⚙️ 管理者":
     st.markdown("<h2 style='color: #2c5282; margin-bottom: 20px;'>⚙️ 管理者コントロールパネル</h2>", unsafe_allow_html=True)
 
-    # ★ メモリ不足クラッシュ対策: デフォルトを False(オフ) に変更
-    is_auto_refresh = st.toggle("🔄 自動更新 (※メモリ消費大)", value=False, help="オンにすると自動で画面がリロードされますが、長時間の使用はサーバーが停止する原因になります。")
+    # ★ メモリ不足クラッシュ対策: 外部ライブラリを捨てて JSベースの軽量リロードに変更
+    url_auto_val = st.query_params.get("auto", "false")
+    default_auto = (url_auto_val == "true")
     
-    if HAS_AUTOREFRESH:
-        if is_auto_refresh:
-            # ★ 60000(60秒) -> 180000(3分) に変更してサーバー負荷を1/3に軽減
-            st_autorefresh(interval=180000, limit=None, key="admin_autorefresh")
-    else:
-        st.warning("💡 **管理者用の自動更新機能を有効にするには:** Pythonの実行環境（ターミナル）で `pip install streamlit-autorefresh` を実行してください。")
+    def on_auto_refresh_change():
+        if st.session_state.admin_auto_refresh:
+            st.query_params["auto"] = "true"
+        else:
+            st.query_params["auto"] = "false"
+
+    is_auto_refresh = st.toggle(
+        "🔄 自動更新 (3分ごと)", 
+        value=default_auto, 
+        key="admin_auto_refresh",
+        on_change=on_auto_refresh_change,
+        help="オンにすると3分ごとに画面をリロードして最新データを取得します。※ブラウザ更新によりメモリを強制解放しクラッシュを防ぎます。"
+    )
+
+    if is_auto_refresh:
+        st.html("""
+            <script>
+                setTimeout(function() {
+                    window.parent.location.reload();
+                }, 180000);
+            </script>
+        """)
 
     if df.empty:
         st.warning("現在表示できるデータがありません。（GASからデータを取得できていません）")
@@ -1744,9 +1756,7 @@ elif current_tab == "📖 監査マニュアル":
         st.info("💡 **一括コピー機能:** 以下のカードの**どこでもクリックするだけ**で、中身のテキストがクリップボードに一発でコピーされます！")
         
         html_content = """
-        <!DOCTYPE html>
-        <html>
-        <head>
+        <div style="height: 800px; overflow-y: auto;">
             <style>
                 body { font-family: sans-serif; margin: 0; padding: 10px; background-color: #f4f7f9; }
                 .grid-container {
@@ -1821,8 +1831,6 @@ elif current_tab == "📖 監査マニュアル":
                 }
                 .empty-cell:hover { transform: none; box-shadow: none; border-color: #cbd5e0; }
             </style>
-        </head>
-        <body>
             <div class="grid-container">
                 <div class="header-card">level⑥</div>
                 <div class="header-card">level⑤</div>
@@ -1877,8 +1885,10 @@ elif current_tab == "📖 監査マニュアル":
                 }
             }
             </script>
-        </body>
-        </html>
+        </div>
         """
         
-        st.components.v1.html(html_content, height=800, scrolling=True)
+        st.html(html_content)
+
+# スクリプトの最後でも念のためのガベージコレクションを実行
+gc.collect()
