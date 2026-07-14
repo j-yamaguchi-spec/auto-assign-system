@@ -21,8 +21,8 @@ import html as html_lib
 # 【イベント・通信の特徴】
 # ・Exponential Backoff(指数的バックオフ)によるリトライ通信で、GASのロック(混雑)に耐性。
 # ・すべてのデータ更新通信にログデータを自動で「相乗り」させ、ログ漏れ率を0%に。
-# ・【New】Segmentation fault 対策: PyArrowのクラッシュバグを回避するため、
-#   すべての日時データを「タイムゾーンなし（tz-naive）」に完全統一してメモリ破壊を撲滅
+# ・【New】タブ切り替え等の状態管理をURLクエリベースに変更し、キャッシュクリア時のAttributeErrorを完全撲滅
+# ・【New】「他/未割当」および「緊急(未割当)」タスク内でのファストパス分別表示を確実にするためデータ抽出フローを堅牢化
 # ==========================================
 
 # ==========================================
@@ -35,7 +35,6 @@ GAS_URL = st.secrets.get("GAS_URL", "https://script.google.com/macros/s/AKfycbx3
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = "柿木田" 
 if "last_fetch_time_obj" not in st.session_state:
-    # ★ タイムゾーンなし (tz-naive) で現在時刻を取得
     st.session_state.last_fetch_time_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
 
 STATUS_OPTIONS = ["出社", "退勤", "欠勤", "休憩中", "別業務中", "精査"]
@@ -177,13 +176,11 @@ def clean_id(val):
 def fetch_data():
     try:
         data = safe_api_get()
-        # ★ セグフォ対策: タイムゾーンを持たない現在時刻にする
         now_obj = pd.Timestamp.now(tz='Asia/Tokyo').tz_localize(None)
         fetch_time = now_obj.strftime("%H:%M:%S")
         
         df = pd.DataFrame(data.get("data", []))
         if not df.empty:
-            # ★ セグフォ対策: タイムゾーン情報(Asia/Tokyo)を消去し tz-naive な日時にする
             df['datetime'] = pd.to_datetime(df['datetime'])
             if df['datetime'].dt.tz is not None:
                 df['datetime'] = df['datetime'].dt.tz_convert('Asia/Tokyo').dt.tz_localize(None)
@@ -343,10 +340,7 @@ if not df.empty:
     if api_settings.get("exclude_jiei", False):
         alert_condition &= ~df['is_exclude_target']
         
-    unassigned_alert_tasks = df[alert_condition].sort_values('datetime')
-
-if not unassigned_alert_tasks.empty:
-    st.error(f"🚨 **【緊急】担当者が空欄のまま漏れている待機タスクが {len(unassigned_alert_tasks)} 件あります！** \n自動振り分けが不可能な状態です（出社メンバーが0人か、該当スキルの保持者が不在）。\nページ下部の「緊急タスクリスト」から手動で拾うか、管理者画面で出社/スキル状況を見直してください。")
+    unassigned_alert_tasks = df[alert_condition].sort_values('datetime').copy()
 
 with header_container:
     st.markdown('<div id="sticky-header-anchor"></div>', unsafe_allow_html=True)
@@ -368,60 +362,46 @@ with header_container:
             
         with ctrl_col1:
             users = api_members if api_members else ["柿木田", "中林", "今村"] 
-            url_user = st.query_params.get("user")
-            
-            if url_user and url_user in users and st.session_state.selected_user != url_user:
-                st.session_state.selected_user = url_user
-                
-            if not url_user:
-                 st.query_params["user"] = st.session_state.selected_user
-
-            default_index = users.index(st.session_state.selected_user) if st.session_state.selected_user in users else 0
+            # ★ ユーザー選択の安全な同期 (コールバック不使用)
+            url_user = st.query_params.get("user", st.session_state.selected_user)
+            default_index = users.index(url_user) if url_user in users else 0
             
             ui_selected_user = st.selectbox(
                 "担当者", 
                 users, 
                 index=default_index,
-                key="ui_user_selector", 
                 label_visibility="collapsed"
             )
             
             if ui_selected_user != st.session_state.selected_user:
                 st.session_state.selected_user = ui_selected_user
-                st.query_params["user"] = ui_selected_user
-                st.rerun()
+            
+            # URLパラメーターに常に最新のユーザーを反映
+            st.query_params["user"] = ui_selected_user
             
         with ctrl_col2:
-            url_tab = st.query_params.get("tab")
+            # ★ タブ切り替えの安全な同期 (コールバック不使用でエラー撲滅)
+            url_tab = st.query_params.get("tab", "user")
             tab_options = ["👤 ユーザー", "⚙️ 管理者", "📖 監査マニュアル"]
             
-            if "current_tab" not in st.session_state:
-                if url_tab == "admin":
-                    st.session_state.current_tab = "⚙️ 管理者"
-                elif url_tab == "manual":
-                    st.session_state.current_tab = "📖 監査マニュアル"
-                else:
-                    st.session_state.current_tab = "👤 ユーザー"
+            default_tab_index = 0
+            if url_tab == "admin": default_tab_index = 1
+            elif url_tab == "manual": default_tab_index = 2
             
-            def on_tab_change():
-                if st.session_state.current_tab == "⚙️ 管理者":
-                    st.query_params["tab"] = "admin"
-                elif st.session_state.current_tab == "📖 監査マニュアル":
-                    st.query_params["tab"] = "manual"
-                else:
-                    st.query_params["tab"] = "user"
-                    
-            if not url_tab:
-                 st.query_params["tab"] = "user"
-
             current_tab = st.radio(
                 "画面", 
                 tab_options, 
+                index=default_tab_index,
                 horizontal=True, 
-                label_visibility="collapsed", 
-                key="current_tab",
-                on_change=on_tab_change
+                label_visibility="collapsed"
             )
+            
+            if current_tab == "⚙️ 管理者":
+                st.query_params["tab"] = "admin"
+            elif current_tab == "📖 監査マニュアル":
+                st.query_params["tab"] = "manual"
+            else:
+                st.query_params["tab"] = "user"
 
 st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
@@ -725,6 +705,7 @@ if current_tab == "👤 ユーザー":
         current_date = today_date
         has_any_displayed = False
         
+        # ▼▼ 他/未割当 タスクの表示ロジック ▼▼
         while current_date <= target_end_date:
             my_active_for_date = my_active_tasks[my_active_tasks['datetime'].dt.date == current_date]
             
@@ -761,13 +742,13 @@ if current_tab == "👤 ユーザー":
                             return True
                         
                         mask = base_other_tasks.apply(check_skill, axis=1)
-                        other_target_tasks = base_other_tasks[mask].sort_values('datetime')
+                        other_target_tasks = base_other_tasks[mask].sort_values('datetime').copy()
                     else:
-                        other_target_tasks = base_other_tasks.sort_values('datetime')
+                        other_target_tasks = base_other_tasks.sort_values('datetime').copy()
             
             if not other_target_tasks.empty and not my_active_for_date.empty:
                 min_my_time = my_active_for_date['datetime'].min()
-                other_target_tasks = other_target_tasks[other_target_tasks['datetime'] < min_my_time]
+                other_target_tasks = other_target_tasks[other_target_tasks['datetime'] < min_my_time].copy()
                 
             if not other_target_tasks.empty:
                 has_any_displayed = True
@@ -776,11 +757,14 @@ if current_tab == "👤 ユーザー":
                     
                 st.markdown(f"<div style='margin-bottom: 2px; color: #d69e2e; font-weight: bold; font-size: 0.85em;'>{header_text}</div>", unsafe_allow_html=True)
                 
-                other_target_tasks['is_fp'] = other_target_tasks.apply(lambda r: clean_id(r['anken_id']) in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
-                fp_tasks = other_target_tasks[other_target_tasks['is_fp'] == True]
-                normal_tasks = other_target_tasks[other_target_tasks['is_fp'] == False]
+                # ★ ファストパス判定を安全に実行
+                other_target_tasks['is_fp'] = other_target_tasks['anken_id'].apply(lambda x: clean_id(x) in api_fastpass_ids)
                 
-                # --- 🔥 ファストパス専用ブロック ---
+                # ★ SettingWithCopy対策と確実な分離
+                fp_tasks = other_target_tasks[other_target_tasks['is_fp'] == True].copy()
+                normal_tasks = other_target_tasks[other_target_tasks['is_fp'] == False].copy()
+                
+                # --- 🔥 他人の優先タスク (ファストパス) ---
                 if not fp_tasks.empty:
                     st.markdown("<div style='margin-bottom: 5px; color: #e53e3e; font-weight: bold;'>🔥 【最優先】ファストパス案件</div>", unsafe_allow_html=True)
                     with st.container(border=True):
@@ -820,7 +804,7 @@ if current_tab == "👤 ユーザー":
                                 st.markdown("<hr style='margin: 4px 0; border-top: 1px dashed #edf2f7;'>", unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
                         
-                # --- 🔹 通常タスク専用ブロック ---
+                # --- 🔹 他人の通常待機タスク ---
                 if not normal_tasks.empty:
                     if not fp_tasks.empty:
                         st.markdown("<div style='margin-top: 10px; margin-bottom: 5px; color: #d69e2e; font-weight: bold;'>🔹 通常の待機タスク</div>", unsafe_allow_html=True)
@@ -869,37 +853,77 @@ if current_tab == "👤 ユーザー":
     # --- 緊急: 未割当(SOS)タスクリスト ---
     if not unassigned_alert_tasks.empty:
         st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #e53e3e; font-weight: bold;'>🚨 誰も担当していない緊急タスク (手動で拾ってください)</div>", unsafe_allow_html=True)
-        for idx, task in unassigned_alert_tasks.iterrows():
-            task_date = task['datetime'].strftime('%m/%d')
-            start_t = task['datetime'].strftime('%H:%M')
-            duration_m = int(task['duration'])
-            f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
-            
-            with st.container(border=True):
-                st.markdown(f"""
-                <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 8px; background-color: #fff5f5; padding-top: 5px; padding-bottom: 5px;">
-                    <div style="font-weight: bold; color: #e53e3e; margin-bottom: 2px;">
-                        <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
-                    </div>
-                    <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        📝 {task['title']}
-                    </div>
-                    <div style="color: #e53e3e; font-size: 0.85em; font-weight: bold;">
-                        🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; ⚠️ 未割当
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+        
+        # ★ 緊急タスクでもファストパスを最優先に分別
+        unassigned_alert_tasks['is_fp'] = unassigned_alert_tasks['anken_id'].apply(lambda x: clean_id(x) in api_fastpass_ids)
+        sos_fp_tasks = unassigned_alert_tasks[unassigned_alert_tasks['is_fp'] == True].copy()
+        sos_normal_tasks = unassigned_alert_tasks[unassigned_alert_tasks['is_fp'] == False].copy()
+
+        if not sos_fp_tasks.empty:
+            for idx, task in sos_fp_tasks.iterrows():
+                task_date = task['datetime'].strftime('%m/%d')
+                start_t = task['datetime'].strftime('%H:%M')
+                duration_m = int(task['duration'])
+                f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
                 
-                col_id, col_phone = st.columns(2)
-                with col_id:
-                    disp_id = clean_id(task['anken_id'])
-                    st.markdown(f"<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 {disp_id}</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown(f"""
+                    <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 8px; background-color: #fff5f5; padding-top: 5px; padding-bottom: 5px;">
+                        <div style="font-weight: bold; color: #e53e3e; margin-bottom: 2px;">
+                            <span style='background-color: #e53e3e; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;'>🔥 優先</span><span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
+                        </div>
+                        <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            📝 {task['title']}
+                        </div>
+                        <div style="color: #e53e3e; font-size: 0.85em; font-weight: bold;">
+                            🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; ⚠️ 未割当
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_id, col_phone = st.columns(2)
+                    with col_id:
+                        disp_id = clean_id(task['anken_id'])
+                        st.markdown(f"<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 {disp_id}</div>", unsafe_allow_html=True)
+                    
+                    b_col1, b_col2 = st.columns([4, 1.5])
+                    with b_col2:
+                        is_disabled = not active_tasks.empty
+                        if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", width="stretch"):
+                            take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
+
+        if not sos_normal_tasks.empty:
+            for idx, task in sos_normal_tasks.iterrows():
+                task_date = task['datetime'].strftime('%m/%d')
+                start_t = task['datetime'].strftime('%H:%M')
+                duration_m = int(task['duration'])
+                f_icon = "🔊 復活音源 " if task['fukkatsu'] else ""
                 
-                b_col1, b_col2 = st.columns([4, 1.5])
-                with b_col2:
-                    is_disabled = not active_tasks.empty
-                    if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, type="primary", width="stretch"):
-                        take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
+                with st.container(border=True):
+                    st.markdown(f"""
+                    <div style="border-left: 4px solid #ed8936; padding-left: 12px; margin-bottom: 8px; background-color: #fffaf0; padding-top: 5px; padding-bottom: 5px;">
+                        <div style="font-weight: bold; color: #dd6b20; margin-bottom: 2px;">
+                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
+                        </div>
+                        <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            📝 {task['title']}
+                        </div>
+                        <div style="color: #dd6b20; font-size: 0.85em; font-weight: bold;">
+                            🕒 {task_date} {start_t} &nbsp;&nbsp;⏳ {duration_m} 分 &nbsp;&nbsp;|&nbsp;&nbsp; ⚠️ 未割当
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_id, col_phone = st.columns(2)
+                    with col_id:
+                        disp_id = clean_id(task['anken_id'])
+                        st.markdown(f"<div style='font-size: 0.85em; color: #718096; margin-bottom: 2px;'>🆔 {disp_id}</div>", unsafe_allow_html=True)
+                    
+                    b_col1, b_col2 = st.columns([4, 1.5])
+                    with b_col2:
+                        is_disabled = not active_tasks.empty
+                        if st.button("🙋 取得して着手", key=f"sos_assign_{task['anken_id']}", disabled=is_disabled, width="stretch"):
+                            take_and_start_task(task['anken_id'], st.session_state.selected_user, original_assign="")
     
     st.markdown("<div style='margin-bottom: 4px; color: #4a5568; font-weight: bold;'>🏃 現在着手中</div>", unsafe_allow_html=True)
     
@@ -1001,20 +1025,19 @@ if current_tab == "👤 ユーザー":
                     if st.button("▶ 再開する", key=f"resume_{task['anken_id']}", disabled=is_disabled, width="stretch"):
                         update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
-    # --- 下段: 待機中のタスクリスト ---
+    # --- 下段: 自分の待機中のタスクリスト ---
     waiting_tasks = my_tasks[my_tasks['status'] == '未対応'].copy() if not my_tasks.empty else pd.DataFrame()
     
     if waiting_tasks.empty:
         st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク</div>", unsafe_allow_html=True)
-        st.success("待機中のタスクはすべて完了しました！🎉")
+        st.success("自分の待機中タスクはすべて完了しました！🎉")
     else:
-        waiting_tasks['is_fp'] = waiting_tasks.apply(lambda r: clean_id(r['anken_id']) in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        waiting_tasks['is_fp'] = waiting_tasks['anken_id'].apply(lambda x: clean_id(x) in api_fastpass_ids)
         my_fp_tasks = waiting_tasks[waiting_tasks['is_fp'] == True].sort_values('datetime')
         my_normal_tasks = waiting_tasks[waiting_tasks['is_fp'] == False].sort_values('datetime')
         
-        # --- 🔥 自分の優先タスク (ファストパス) ---
         if not my_fp_tasks.empty:
-            st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #e53e3e; font-weight: bold;'>🔥 優先タスク (ファストパス)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #e53e3e; font-weight: bold;'>🔥 優先タスク (自分のファストパス)</div>", unsafe_allow_html=True)
             for idx, task in my_fp_tasks.iterrows():
                 task_date = task['datetime'].strftime('%m/%d')
                 start_t = task['datetime'].strftime('%H:%M')
@@ -1025,7 +1048,7 @@ if current_tab == "👤 ユーザー":
                     st.markdown(f"""
                     <div style="border-left: 4px solid #e53e3e; padding-left: 12px; margin-bottom: 8px;">
                         <div style="font-weight: bold; color: #e53e3e; margin-bottom: 2px;">
-                            <span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
+                            <span style='background-color: #e53e3e; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 8px;'>🔥 優先</span><span style="color:#805ad5;">{f_icon}</span>{task['method']}商談 ({task['product']})
                         </div>
                         <div style="color: #4a5568; font-size: 0.85em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             📝 {task['title']}
@@ -1055,7 +1078,6 @@ if current_tab == "👤 ユーザー":
                         if st.button("▶ 着手する", key=f"start_{task['anken_id']}", disabled=is_disabled, width="stretch", type="primary"):
                             update_status(task['anken_id'], "着手", expected_assign=task['assigned'], expected_status=task['status'])
 
-        # --- 🔹 自分の通常待機タスク ---
         if not my_normal_tasks.empty:
             st.markdown("<div style='margin-bottom: 4px; margin-top: 15px; color: #4a5568; font-weight: bold;'>📋 待機中のタスク (通常)</div>", unsafe_allow_html=True)
             for idx, task in my_normal_tasks.iterrows():
@@ -1165,7 +1187,6 @@ if current_tab == "👤 ユーザー":
                 ts = ""
                 if pd.notna(log["timestamp"]):
                     ts_dt = pd.to_datetime(log["timestamp"])
-                    # ★ セグフォ対策: タイムゾーン情報がある場合は tz-naive に変換
                     if getattr(ts_dt, 'tzinfo', None) is not None:
                         ts_dt = ts_dt.tz_convert('Asia/Tokyo').tz_localize(None)
                     ts = ts_dt.strftime('%H:%M:%S')
@@ -1234,10 +1255,9 @@ elif current_tab == "⚙️ 管理者":
                 target_time = st.time_input("対象時間 (まで)", datetime.strptime("15:00", "%H:%M").time())
                 
             target_datetime = datetime.combine(target_date, target_time)
-            # ★ セグフォ対策: タイムゾーン情報を持たない状態で比較する
             target_dt_naive = pd.to_datetime(target_datetime)
             
-            filtered_df = df[(df['datetime'] <= target_dt_naive) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消']))].copy()
+            filtered_df = df[(df['datetime'] <= target_dt_naive) & (df['product'] != 'JOBYmini') & (~df['status'].isin(['完了', '取り消し']))].copy()
             
             if api_settings.get("exclude_jiei", False):
                 filtered_df = filtered_df[~filtered_df['is_exclude_target']].copy()
@@ -1569,7 +1589,7 @@ elif current_tab == "⚙️ 管理者":
         
         all_display_df = df[['assigned', 'status', 'datetime', 'anken_id', 'title', 'duration', 'product', 'method']].copy()
         
-        all_display_df['is_fp'] = all_display_df.apply(lambda r: clean_id(r['anken_id']) in api_fastpass_ids and (r['datetime'].date() <= fp_limit_date), axis=1)
+        all_display_df['is_fp'] = all_display_df['anken_id'].apply(lambda x: clean_id(x) in api_fastpass_ids)
         
         all_display_df['datetime'] = all_display_df['datetime'].dt.strftime('%m/%d %H:%M')
         all_display_df.columns = ['担当者', 'ステータス', '日時', '案件ID', 'タイトル', '分数', '商材', '商談方法', 'is_fp']
@@ -1616,7 +1636,7 @@ elif current_tab == "⚙️ 管理者":
             search_query = st.text_input("検索", placeholder="🔍 案件IDで検索...", label_visibility="collapsed", key="search_waiting")
             
         if search_query:
-            waiting_cases_display_df = waiting_cases_df[waiting_cases_df['案件ID'].astype(str).str.contains(search_query, case=False, na=False)].reset_index(drop=True)
+            waiting_cases_display_df = waiting_cases_df[waiting_cases_df['案件ID'].apply(clean_id).str.contains(search_query, case=False, na=False)].reset_index(drop=True)
         else:
             waiting_cases_display_df = waiting_cases_df
         
